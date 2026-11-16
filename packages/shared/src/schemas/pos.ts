@@ -316,6 +316,20 @@ export const listPurchasesQuerySchema = z.object({
 
 export type ListPurchasesQueryInput = z.infer<typeof listPurchasesQuerySchema>;
 
+export const listPurchaseItemsQuerySchema = z.object({
+  search: z.string().optional(),
+  purchaseId: z.string().uuid().optional(),
+  productId: z.string().uuid().optional(),
+  branchId: z.string().uuid().optional(),
+  supplierId: z.string().uuid().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListPurchaseItemsQueryInput = z.infer<typeof listPurchaseItemsQuerySchema>;
+
 // ============================================================================
 // Phase 7: Stock Adjustments
 // ============================================================================

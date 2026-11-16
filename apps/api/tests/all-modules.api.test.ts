@@ -1841,6 +1841,34 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(supPaymentsRes.body.data[0].paymentMethod).toBe('ABA');
     expect(supPaymentsRes.body.pagination).toBeDefined();
     expect(supPaymentsRes.body.pagination.total).toBeGreaterThanOrEqual(1);
+
+    // 7. List purchase items across purchases & for specific purchase
+    const allPurchaseItemsRes = await request(app)
+      .get(`/api/v1/purchases/items?branchId=${branchId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(allPurchaseItemsRes.status).toBe(200);
+    expect(allPurchaseItemsRes.body.data.length).toBeGreaterThanOrEqual(2);
+    expect(allPurchaseItemsRes.body.pagination).toBeDefined();
+    expect(allPurchaseItemsRes.body.pagination.total).toBeGreaterThanOrEqual(2);
+
+    const firstItem = allPurchaseItemsRes.body.data[0];
+    expect(firstItem.id).toBeDefined();
+    expect(firstItem.purchaseId).toBeDefined();
+    expect(firstItem.productId).toBe(productId);
+    expect(firstItem.productNameSnapshot).toBe('Drinking Water Case');
+    expect(firstItem.quantity).toBeDefined();
+    expect(firstItem.unitCost).toBeDefined();
+    expect(firstItem.discountAmount).toBeDefined();
+    expect(firstItem.taxAmount).toBeDefined();
+    expect(firstItem.lineTotal).toBeDefined();
+
+    const singlePoItemsRes = await request(app)
+      .get(`/api/v1/purchases/${poId}/items`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(singlePoItemsRes.status).toBe(200);
+    expect(singlePoItemsRes.body.data).toHaveLength(1);
+    expect(singlePoItemsRes.body.data[0].purchaseId).toBe(poId);
+    expect(singlePoItemsRes.body.data[0].lineTotal).toBe('45.00');
   });
 
   it('FR-09: handles viewing stock balances, tracking increases/decreases, manual adjustments with reasons, movement history filters, and unauthorized change prevention', async () => {

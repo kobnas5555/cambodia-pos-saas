@@ -40,7 +40,38 @@ import { useI18n } from '@/contexts/I18nContext';
 import { apiRequest, ApiClientError } from '@/lib/api';
 
 type PaymentStatus = 'UNPAID' | 'PARTIAL' | 'PAID';
-type TabKey = 'orders' | 'payments';
+type TabKey = 'orders' | 'items' | 'payments';
+
+interface PurchaseItemRow {
+  id: string;
+  purchaseId: string;
+  productId: string;
+  productNameSnapshot: string;
+  quantity: string;
+  unitCost: string;
+  discountAmount: string;
+  taxAmount: string;
+  lineTotal: string;
+  product?: {
+    id: string;
+    sku: string;
+    barcode?: string | null;
+    name: string;
+    trackInventory: boolean;
+  };
+  purchase?: {
+    id: string;
+    purchaseNumber: string;
+    currencyCode: CurrencyCode;
+    exchangeRate?: string;
+    status: string;
+    purchaseDate: string;
+    receivedAt: string | null;
+    branch: { id: string; name: string; branchCode?: string };
+    supplier: { id: string; name: string; contactPerson?: string | null; phone?: string | null };
+    employee?: { id: string; name: string; employeeCode?: string };
+  };
+}
 
 interface PurchaseRow {
   id: string;
@@ -137,6 +168,7 @@ export default function PurchasingPage() {
 
   const [tab, setTab] = useState<TabKey>('orders');
   const [purchases, setPurchases] = useState<PurchaseRow[]>([]);
+  const [purchaseItems, setPurchaseItems] = useState<PurchaseItemRow[]>([]);
   const [payments, setPayments] = useState<PurchasePaymentRow[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
@@ -157,6 +189,8 @@ export default function PurchasingPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [purchasePage, setPurchasePage] = useState(1);
   const [purchasePageSize, setPurchasePageSize] = useState(10);
+  const [itemPage, setItemPage] = useState(1);
+  const [itemPageSize, setItemPageSize] = useState(10);
   const [paymentPage, setPaymentPage] = useState(1);
   const [paymentPageSize, setPaymentPageSize] = useState(10);
 
@@ -213,6 +247,14 @@ export default function PurchasingPage() {
       if (endDateFilter) qs.set('endDate', endDateFilter);
       if (search.trim()) qs.set('search', search.trim());
 
+      const itemQs = new URLSearchParams();
+      if (activeBranch) itemQs.set('branchId', activeBranch.id);
+      else if (branchFilter !== 'ALL') itemQs.set('branchId', branchFilter);
+      if (supplierFilter !== 'ALL') itemQs.set('supplierId', supplierFilter);
+      if (startDateFilter) itemQs.set('startDate', startDateFilter);
+      if (endDateFilter) itemQs.set('endDate', endDateFilter);
+      if (search.trim()) itemQs.set('search', search.trim());
+
       const payQs = new URLSearchParams();
       if (activeBranch) payQs.set('branchId', activeBranch.id);
       else if (branchFilter !== 'ALL') payQs.set('branchId', branchFilter);
@@ -220,13 +262,18 @@ export default function PurchasingPage() {
       if (currencyFilter !== 'ALL') payQs.set('currencyCode', currencyFilter);
       if (search.trim()) payQs.set('search', search.trim());
 
-      const [purs, payList, sups, prods] = await Promise.all([
+      const [purs, itemsList, payList, sups, prods] = await Promise.all([
         apiRequest<PurchaseRow[]>(`/purchases?${qs.toString()}`),
+        apiRequest<PurchaseItemRow[]>(`/purchases/items?${itemQs.toString()}`),
         apiRequest<PurchasePaymentRow[]>(`/purchases/payments?${payQs.toString()}`),
         apiRequest<SupplierOption[]>('/suppliers'),
         apiRequest<ProductOption[]>('/products?status=ACTIVE'),
       ]);
       setPurchases(purs);
+      setPurchaseItems(itemsList);
+      setPayments(payList);
+      setSuppliers(sups.filter((s) => !s.status || s.status === 'ACTIVE'));
+      setProducts(prods);
       setPayments(payList);
       setSuppliers(sups.filter((s) => !s.status || s.status === 'ACTIVE'));
       setProducts(prods);
@@ -446,6 +493,40 @@ export default function PurchasingPage() {
     return filteredPurchases.slice(start, start + purchasePageSize);
   }, [filteredPurchases, purchasePage, purchasePageSize]);
 
+  const filteredPurchaseItems = useMemo(() => {
+    return purchaseItems.filter((item) => {
+      if (branchFilter !== 'ALL' && item.purchase?.branch?.id && item.purchase.branch.id !== branchFilter) return false;
+      if (supplierFilter !== 'ALL' && item.purchase?.supplier?.id && item.purchase.supplier.id !== supplierFilter) return false;
+      if (currencyFilter !== 'ALL' && item.purchase?.currencyCode && item.purchase.currencyCode !== currencyFilter) return false;
+      if (startDateFilter && item.purchase?.purchaseDate && new Date(item.purchase.purchaseDate) < new Date(startDateFilter)) return false;
+      if (endDateFilter && item.purchase?.purchaseDate && new Date(item.purchase.purchaseDate) > new Date(endDateFilter + 'T23:59:59.999Z')) return false;
+
+      if (!q) return true;
+      return (
+        item.productNameSnapshot.toLowerCase().includes(q) ||
+        (item.product?.sku ?? '').toLowerCase().includes(q) ||
+        (item.product?.barcode ?? '').toLowerCase().includes(q) ||
+        (item.purchase?.purchaseNumber ?? '').toLowerCase().includes(q) ||
+        (item.purchase?.supplier?.name ?? '').toLowerCase().includes(q) ||
+        (item.purchase?.branch?.name ?? '').toLowerCase().includes(q) ||
+        item.id.toLowerCase().includes(q)
+      );
+    });
+  }, [
+    purchaseItems,
+    branchFilter,
+    supplierFilter,
+    currencyFilter,
+    startDateFilter,
+    endDateFilter,
+    q,
+  ]);
+
+  const paginatedPurchaseItems = useMemo(() => {
+    const start = (itemPage - 1) * itemPageSize;
+    return filteredPurchaseItems.slice(start, start + itemPageSize);
+  }, [filteredPurchaseItems, itemPage, itemPageSize]);
+
   const filteredPayments = useMemo(() => {
     return payments.filter((pay) => {
       if (paymentMethodFilter !== 'ALL' && pay.paymentMethod !== paymentMethodFilter) return false;
@@ -603,6 +684,19 @@ export default function PurchasingPage() {
 
             <button
               type="button"
+              onClick={() => setTab('items')}
+              className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition ${
+                tab === 'items'
+                  ? 'bg-emerald-600 text-white shadow-sm'
+                  : 'bg-white text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Package className="h-4 w-4" />
+              Procurement Items ({purchaseItems.length})
+            </button>
+
+            <button
+              type="button"
               onClick={() => setTab('payments')}
               className={`inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition ${
                 tab === 'payments'
@@ -725,6 +819,86 @@ export default function PurchasingPage() {
                   />
                 </div>
               </>
+            ) : tab === 'items' ? (
+              <>
+                {activeTenant?.branches && activeTenant.branches.length > 1 && (
+                  <select
+                    aria-label="Filter by branch"
+                    value={branchFilter}
+                    onChange={(e) => {
+                      setBranchFilter(e.target.value);
+                      setItemPage(1);
+                    }}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="ALL">All Branches</option>
+                    {activeTenant.branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                <select
+                  aria-label="Filter by supplier"
+                  value={supplierFilter}
+                  onChange={(e) => {
+                    setSupplierFilter(e.target.value);
+                    setItemPage(1);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="ALL">{t.purchasing.allSuppliers}</option>
+                  {suppliers.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  aria-label="Filter by currency"
+                  value={currencyFilter}
+                  onChange={(e) => {
+                    setCurrencyFilter(e.target.value);
+                    setItemPage(1);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="ALL">All Currencies</option>
+                  {SUPPORTED_CURRENCIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs shadow-sm">
+                  <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    type="date"
+                    value={startDateFilter}
+                    onChange={(e) => {
+                      setStartDateFilter(e.target.value);
+                      setItemPage(1);
+                    }}
+                    className="bg-transparent text-xs text-slate-700 focus:outline-none"
+                    aria-label="Start date filter"
+                  />
+                  <span className="text-slate-400">&ndash;</span>
+                  <input
+                    type="date"
+                    value={endDateFilter}
+                    onChange={(e) => {
+                      setEndDateFilter(e.target.value);
+                      setItemPage(1);
+                    }}
+                    className="bg-transparent text-xs text-slate-700 focus:outline-none"
+                    aria-label="End date filter"
+                  />
+                </div>
+              </>
             ) : (
               <>
                 {activeTenant?.branches && activeTenant.branches.length > 1 && (
@@ -789,10 +963,15 @@ export default function PurchasingPage() {
                 onChange={(e) => {
                   setSearch(e.target.value);
                   setPurchasePage(1);
+                  setItemPage(1);
                   setPaymentPage(1);
                 }}
                 placeholder={
-                  tab === 'orders' ? 'Search Purchase # or supplier...' : 'Search ref, supplier, method...'
+                  tab === 'orders'
+                    ? 'Search Purchase # or supplier...'
+                    : tab === 'items'
+                      ? 'Search item, SKU, PO #, supplier...'
+                      : 'Search ref, supplier, method...'
                 }
                 className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-9 pr-7 text-xs shadow-sm focus:border-emerald-500 focus:outline-none"
               />
@@ -802,6 +981,7 @@ export default function PurchasingPage() {
                   onClick={() => {
                     setSearch('');
                     setPurchasePage(1);
+                    setItemPage(1);
                     setPaymentPage(1);
                   }}
                   className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
@@ -833,6 +1013,7 @@ export default function PurchasingPage() {
                   setEndDateFilter('');
                   setSearch('');
                   setPurchasePage(1);
+                  setItemPage(1);
                   setPaymentPage(1);
                 }}
                 className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition shadow-sm"
@@ -1119,6 +1300,197 @@ export default function PurchasingPage() {
                     setPurchasePage(1);
                   }}
                   itemName="purchases"
+                />
+              </>
+            ) : tab === 'items' ? (
+              <>
+                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                  <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3.5">Product &amp; Snapshot</th>
+                      <th className="px-4 py-3.5">Purchase Order</th>
+                      <th className="px-4 py-3.5">Supplier &amp; Branch</th>
+                      <th className="px-4 py-3.5 text-right">Quantity</th>
+                      <th className="px-4 py-3.5 text-right">Unit Cost</th>
+                      <th className="px-4 py-3.5 text-right">Discount</th>
+                      <th className="px-4 py-3.5 text-right">Tax</th>
+                      <th className="px-4 py-3.5 text-right">Line Total</th>
+                      <th className="px-4 py-3.5 text-right">{t.common.actions}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredPurchaseItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-12 text-center text-slate-500">
+                          <Package className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+                          <p className="text-sm font-medium text-slate-900">{t.common.noData}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {search || branchFilter !== 'ALL' || supplierFilter !== 'ALL' || currencyFilter !== 'ALL'
+                              ? 'No purchase line items matched your filter criteria.'
+                              : 'No procurement items recorded yet.'}
+                          </p>
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedPurchaseItems.map((item) => {
+                        const cur = item.purchase?.currencyCode || 'USD';
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50/50 transition">
+                            {/* Product & Snapshot */}
+                            <td className="px-4 py-3">
+                              <div className="space-y-0.5">
+                                <div className="font-semibold text-slate-900">
+                                  {item.productNameSnapshot}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                                  {item.product?.sku && (
+                                    <span className="font-mono rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700">
+                                      SKU: {item.product.sku}
+                                    </span>
+                                  )}
+                                  {item.product?.barcode && (
+                                    <span className="font-mono text-slate-400">
+                                      {item.product.barcode}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyId(item.id)}
+                                    title={`Item ID: ${item.id}`}
+                                    className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded px-1 transition"
+                                  >
+                                    <span>ID: {item.id.slice(0, 8)}...</span>
+                                    {copiedId === item.id ? (
+                                      <Check className="h-2.5 w-2.5 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="h-2.5 w-2.5" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Purchase Order */}
+                            <td className="px-4 py-3">
+                              <div className="space-y-0.5">
+                                {item.purchase ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void openDetailModal(item.purchaseId)}
+                                    className="font-mono text-xs font-bold text-emerald-800 hover:underline block text-left"
+                                  >
+                                    {item.purchase.purchaseNumber}
+                                  </button>
+                                ) : (
+                                  <span className="font-mono text-xs text-slate-500">
+                                    {item.purchaseId.slice(0, 8)}...
+                                  </span>
+                                )}
+                                <div className="text-[11px] text-slate-500">
+                                  {item.purchase?.purchaseDate
+                                    ? new Date(item.purchase.purchaseDate).toLocaleDateString()
+                                    : '—'}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyId(item.purchaseId)}
+                                    title={`Purchase ID: ${item.purchaseId}`}
+                                    className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded px-1 transition"
+                                  >
+                                    <span>PO ID: {item.purchaseId.slice(0, 8)}...</span>
+                                    {copiedId === item.purchaseId ? (
+                                      <Check className="h-2.5 w-2.5 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="h-2.5 w-2.5" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Supplier & Branch */}
+                            <td className="px-4 py-3 text-xs space-y-0.5">
+                              <div className="font-semibold text-slate-900">
+                                {item.purchase?.supplier?.name ?? '—'}
+                              </div>
+                              <div className="flex items-center gap-1 text-[11px] text-slate-600">
+                                <Building2 className="h-3 w-3 text-slate-400" />
+                                <span>{item.purchase?.branch?.name ?? '—'}</span>
+                              </div>
+                            </td>
+
+                            {/* Quantity */}
+                            <td className="px-4 py-3 text-right">
+                              <div className="font-mono font-semibold text-slate-900">
+                                {Number(item.quantity).toLocaleString(undefined, {
+                                  minimumFractionDigits: 0,
+                                  maximumFractionDigits: 4,
+                                })}
+                              </div>
+                            </td>
+
+                            {/* Unit Cost */}
+                            <td className="px-4 py-3 text-right">
+                              <div className="font-mono text-xs text-slate-700">
+                                {formatCurrency(item.unitCost, cur)}
+                              </div>
+                            </td>
+
+                            {/* Discount */}
+                            <td className="px-4 py-3 text-right">
+                              <div className="font-mono text-xs text-amber-700">
+                                {Number(item.discountAmount) > 0
+                                  ? `-${formatCurrency(item.discountAmount, cur)}`
+                                  : '—'}
+                              </div>
+                            </td>
+
+                            {/* Tax */}
+                            <td className="px-4 py-3 text-right">
+                              <div className="font-mono text-xs text-slate-600">
+                                {Number(item.taxAmount) > 0
+                                  ? `+${formatCurrency(item.taxAmount, cur)}`
+                                  : '—'}
+                              </div>
+                            </td>
+
+                            {/* Line Total */}
+                            <td className="px-4 py-3 text-right">
+                              <div className="font-mono font-bold text-slate-900">
+                                {formatCurrency(item.lineTotal, cur)}
+                              </div>
+                            </td>
+
+                            {/* Actions */}
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => void openDetailModal(item.purchaseId)}
+                                className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
+                              >
+                                <Eye className="h-3 w-3" />
+                                View PO
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                <DataTablePagination
+                  currentPage={itemPage}
+                  pageSize={itemPageSize}
+                  totalItems={filteredPurchaseItems.length}
+                  onPageChange={setItemPage}
+                  onPageSizeChange={(sz) => {
+                    setItemPageSize(sz);
+                    setItemPage(1);
+                  }}
+                  itemName="procurement items"
                 />
               </>
             ) : (

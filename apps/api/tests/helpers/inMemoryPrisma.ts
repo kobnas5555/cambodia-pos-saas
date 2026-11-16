@@ -1667,6 +1667,71 @@ export function createInMemoryPrisma() {
       },
     },
 
+    purchaseItem: {
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.purchaseItems.filter((pi) => matchesWhere(pi, where)).length,
+      findFirst: async ({ where, include }: { where?: Row; include?: Row } = {}) => {
+        const found = store.purchaseItems.find((pi) => matchesWhere(pi, where));
+        if (!found) return null;
+        return {
+          ...found,
+          ...(include?.product ? { product: store.products.find((p) => p.id === found.productId) ?? null } : {}),
+          ...(include?.purchase
+            ? {
+                purchase: (() => {
+                  const p = store.purchases.find((pur) => pur.id === found.purchaseId);
+                  if (!p) return null;
+                  return {
+                    ...p,
+                    branch: store.branches.find((b) => b.id === p.branchId) ?? null,
+                    supplier: store.suppliers.find((s) => s.id === p.supplierId) ?? null,
+                    employee: store.employees.find((e) => e.id === p.employeeId) ?? null,
+                  };
+                })(),
+              }
+            : {}),
+        };
+      },
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: {
+        where?: Row;
+        include?: Row;
+        orderBy?: any;
+        skip?: number;
+        take?: number;
+      } = {}) => {
+        let list = applyOrderBy(
+          store.purchaseItems.filter((pi) => matchesWhere(pi, where)),
+          orderBy,
+        );
+        if (typeof skip === 'number') list = list.slice(skip);
+        if (typeof take === 'number') list = list.slice(0, take);
+        return list.map((pi) => ({
+          ...pi,
+          ...(include?.product ? { product: store.products.find((p) => p.id === pi.productId) ?? null } : {}),
+          ...(include?.purchase
+            ? {
+                purchase: (() => {
+                  const p = store.purchases.find((pur) => pur.id === pi.purchaseId);
+                  if (!p) return null;
+                  return {
+                    ...p,
+                    branch: store.branches.find((b) => b.id === p.branchId) ?? null,
+                    supplier: store.suppliers.find((s) => s.id === p.supplierId) ?? null,
+                    employee: store.employees.find((e) => e.id === p.employeeId) ?? null,
+                  };
+                })(),
+              }
+            : {}),
+        }));
+      },
+    },
+
     purchasePayment: {
       count: async ({ where }: { where?: Row } = {}) =>
         store.purchasePayments.filter((pp) => matchesWhere(pp, where)).length,

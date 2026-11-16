@@ -1,6 +1,7 @@
 import {
   createPurchasePaymentSchema,
   createPurchaseSchema,
+  listPurchaseItemsQuerySchema,
   listPurchasesQuerySchema,
 } from '@cambodia-pos/shared';
 import { Router } from 'express';
@@ -23,8 +24,15 @@ router.get(
   controller.list,
 );
 router.get('/payments', requirePermission('purchases.view'), controller.listPayments);
+router.get(
+  '/items',
+  requirePermission('purchases.view'),
+  validate({ query: listPurchaseItemsQuerySchema }),
+  controller.listItems,
+);
 router.post('/', requirePermission('purchases.create'), validate({ body: createPurchaseSchema }), controller.create);
 router.get('/:purchaseId', requirePermission('purchases.view'), validate({ params: idParam }), controller.getOne);
+router.get('/:purchaseId/items', requirePermission('purchases.view'), validate({ params: idParam }), controller.listItems);
 router.post('/:purchaseId/receive', requirePermission('purchases.create'), validate({ params: idParam }), controller.receive);
 router.post(
   '/:purchaseId/payments',

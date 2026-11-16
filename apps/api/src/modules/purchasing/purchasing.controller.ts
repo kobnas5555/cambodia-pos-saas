@@ -36,6 +36,23 @@ export const listPayments = asyncHandler(async (req: Request, res: Response) => 
   });
 });
 
+export const listItems = asyncHandler(async (req: Request, res: Response) => {
+  const result = await purchasingService.listPurchaseItems(req.tenant!.tenantId, {
+    ...req.query,
+    purchaseId: req.params.purchaseId || req.query.purchaseId,
+  } as any);
+  res.json({
+    success: true,
+    data: result.items ?? result,
+    pagination: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+    },
+  });
+});
+
 export const getOne = asyncHandler(async (req: Request, res: Response) => {
   const data = await purchasingService.getPurchaseById(req.tenant!.tenantId, req.params.purchaseId);
   res.json({ success: true, data });
