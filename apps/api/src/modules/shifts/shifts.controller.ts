@@ -9,9 +9,17 @@ const actor = (req: Request) => ({
 });
 
 export const list = asyncHandler(async (req: Request, res: Response) => {
-  const branchId = typeof req.query.branchId === 'string' ? req.query.branchId : undefined;
-  const data = await shiftsService.listShifts(req.tenant!.tenantId, branchId);
-  res.json({ success: true, data });
+  const data = await shiftsService.listShifts(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data,
+    pagination: {
+      page: (data as any).page ?? 1,
+      limit: (data as any).limit ?? 20,
+      total: (data as any).total ?? data.length,
+      totalPages: (data as any).totalPages ?? 1,
+    },
+  });
 });
 
 export const current = asyncHandler(async (req: Request, res: Response) => {

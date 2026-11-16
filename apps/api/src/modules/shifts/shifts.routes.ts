@@ -1,4 +1,4 @@
-import { closeShiftSchema, openShiftSchema } from '@cambodia-pos/shared';
+import { closeShiftSchema, listShiftsQuerySchema, openShiftSchema } from '@cambodia-pos/shared';
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../common/middleware/authenticate';
@@ -12,7 +12,7 @@ const idParam = z.object({ shiftId: z.string().uuid() });
 
 router.use(authenticate, requireTenantContext);
 
-router.get('/', requirePermission('shifts.view'), controller.list);
+router.get('/', requirePermission('shifts.view'), validate({ query: listShiftsQuerySchema }), controller.list);
 router.get('/current', requirePermission('shifts.view'), controller.current);
 router.get('/:shiftId', requirePermission('shifts.view'), validate({ params: idParam }), controller.getOne);
 router.post('/open', requirePermission('shifts.manage'), validate({ body: openShiftSchema }), controller.open);

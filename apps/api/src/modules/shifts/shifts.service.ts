@@ -1,6 +1,7 @@
 import {
   subDecimals,
   type CloseShiftInput,
+  type ListShiftsQueryInput,
   type OpenShiftInput,
 } from '@cambodia-pos/shared';
 import { AppError } from '../../common/errors/AppError';
@@ -10,19 +11,61 @@ import { prisma } from '../../db/prisma';
 import { recordActivity } from '../activity-logs/activity-logs.service';
 import type { ActorInfo } from '../tenants/tenants.service';
 
-export async function listShifts(tenantId: string, branchId?: string) {
-  return prisma.shift.findMany({
-    where: {
-      tenantId,
-      ...(branchId ? { branchId } : {}),
-    },
-    include: {
-      branch: { select: { id: true, name: true, branchCode: true } },
-      employee: { select: { id: true, name: true, employeeCode: true } },
-      _count: { select: { orders: true } },
-    },
-    orderBy: { openedAt: 'desc' },
-    take: 100,
+export async function listShifts(
+  tenantId: string,
+  options?: string | (Partial<ListShiftsQueryInput> & { branchId?: string }),
+) {
+  const query = typeof options === 'string' ? { branchId: options } : options || {};
+  const page = Math.max(1, Number(query.page) || 1);
+  const take = Math.min(100, Math.max(1, Number(query.limit) || 20));
+  const skip = (page - 1) * take;
+
+  const where: any = {
+    tenantId,
+    ...(query.branchId ? { branchId: query.branchId } : {}),
+    ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+    ...(query.status ? { status: query.status } : {}),
+  };
+
+  if (query.startDate || query.endDate) {
+    where.openedAt = {};
+    if (query.startDate) where.openedAt.gte = new Date(query.startDate);
+    if (query.endDate) where.openedAt.lte = new Date(query.endDate);
+  }
+
+  if (query.search?.trim()) {
+    const s = query.search.trim();
+    where.OR = [
+      { shiftNumber: { contains: s, mode: 'insensitive' } },
+      { notes: { contains: s, mode: 'insensitive' } },
+      { employee: { name: { contains: s, mode: 'insensitive' } } },
+      { employee: { employeeCode: { contains: s, mode: 'insensitive' } } },
+      { branch: { name: { contains: s, mode: 'insensitive' } } },
+    ];
+  }
+
+  const [items, total] = await Promise.all([
+    prisma.shift.findMany({
+      where,
+      include: {
+        branch: { select: { id: true, name: true, branchCode: true } },
+        employee: { select: { id: true, name: true, employeeCode: true } },
+        _count: { select: { orders: true } },
+      },
+      orderBy: { openedAt: 'desc' },
+      skip,
+      take,
+    }),
+    prisma.shift.count({ where }),
+  ]);
+
+  const totalPages = Math.ceil(total / take) || 1;
+  return Object.assign(items, {
+    items,
+    total,
+    page,
+    limit: take,
+    totalPages,
   });
 }
 
@@ -97,6 +140,7 @@ export async function openShift(
         shiftNumber,
         openingCash: input.openingCash,
         expectedCash: input.openingCash,
+        notes: input.notes ?? null,
         status: 'OPEN',
       },
       include: {
@@ -114,7 +158,7 @@ export async function openShift(
         module: 'shifts',
         recordType: 'Shift',
         recordId: shift.id,
-        newValues: { shiftNumber, openingCash: input.openingCash },
+        newValues: { shiftNumber, openingCash: input.openingCash, notes: input.notes ?? null },
         ipAddress: actor.ipAddress,
       },
       tx,
@@ -139,13 +183,17 @@ export async function closeShift(
       throw AppError.badRequest('Shift is already closed', 'SHIFT_ALREADY_CLOSED');
     }
 
-    const cashDifference = subDecimals(input.actualCash, shift.expectedCash.toString(), 2);
+    const cashValue = (input.closingCash ?? input.actualCash ?? '0').toString();
+    const notesValue = input.notes ?? input.closingNotes ?? null;
+    const cashDifference = subDecimals(cashValue, shift.expectedCash.toString(), 2);
 
     const updated = await tx.shift.update({
       where: { id: shift.id },
       data: {
-        actualCash: input.actualCash,
+        actualCash: cashValue,
+        closingCash: cashValue,
         cashDifference,
+        notes: notesValue ?? shift.notes,
         closedAt: new Date(),
         status: 'CLOSED',
       },
@@ -171,8 +219,10 @@ export async function closeShift(
         newValues: {
           status: 'CLOSED',
           expectedCash: shift.expectedCash.toString(),
-          actualCash: input.actualCash,
+          actualCash: cashValue,
+          closingCash: cashValue,
           cashDifference,
+          notes: notesValue ?? shift.notes,
         },
         ipAddress: actor.ipAddress,
       },

@@ -1730,6 +1730,8 @@ export function createInMemoryPrisma() {
         if (!found) return null;
         return {
           ...found,
+          closingCash: found.closingCash ?? found.actualCash ?? null,
+          notes: found.notes ?? null,
           ...(include?.branch ? { branch: store.branches.find((b) => b.id === found.branchId) } : {}),
           ...(include?.employee ? { employee: store.employees.find((e) => e.id === found.employeeId) } : {}),
           ...(include?._count
@@ -1750,20 +1752,24 @@ export function createInMemoryPrisma() {
             : {}),
         };
       },
-      findMany: async ({ where, include, orderBy, take }: { where?: Row; include?: Row; orderBy?: any; take?: number } = {}) =>
-        applyOrderBy(
+      findMany: async ({ where, include, orderBy, skip, take }: { where?: Row; include?: Row; orderBy?: any; skip?: number; take?: number } = {}) => {
+        const sorted = applyOrderBy(
           store.shifts.filter((s) => matchesWhere(s, where)),
           orderBy,
-        )
-          .slice(0, take ?? 100)
-          .map((s) => ({
-            ...s,
-            ...(include?.branch ? { branch: store.branches.find((b) => b.id === s.branchId) } : {}),
-            ...(include?.employee ? { employee: store.employees.find((e) => e.id === s.employeeId) } : {}),
-            ...(include?._count
-              ? { _count: { orders: store.orders.filter((o) => o.shiftId === s.id).length } }
-              : {}),
-          })),
+        );
+        const start = skip ?? 0;
+        const page = sorted.slice(start, start + (take ?? 100));
+        return page.map((s) => ({
+          ...s,
+          closingCash: s.closingCash ?? s.actualCash ?? null,
+          notes: s.notes ?? null,
+          ...(include?.branch ? { branch: store.branches.find((b) => b.id === s.branchId) } : {}),
+          ...(include?.employee ? { employee: store.employees.find((e) => e.id === s.employeeId) } : {}),
+          ...(include?._count
+            ? { _count: { orders: store.orders.filter((o) => o.shiftId === s.id).length } }
+            : {}),
+        }));
+      },
       create: async ({ data, include }: { data: Row; include?: Row }) => {
         const now = new Date();
         const row = {
@@ -1771,7 +1777,9 @@ export function createInMemoryPrisma() {
           openedAt: now,
           closedAt: null,
           actualCash: null,
+          closingCash: null,
           cashDifference: null,
+          notes: data.notes ?? null,
           createdAt: now,
           updatedAt: now,
           ...data,
@@ -1781,6 +1789,8 @@ export function createInMemoryPrisma() {
         store.shifts.push(row);
         return {
           ...row,
+          closingCash: row.closingCash ?? row.actualCash ?? null,
+          notes: row.notes ?? null,
           ...(include?.branch ? { branch: store.branches.find((b) => b.id === row.branchId) } : {}),
           ...(include?.employee ? { employee: store.employees.find((e) => e.id === row.employeeId) } : {}),
         };
@@ -1790,11 +1800,21 @@ export function createInMemoryPrisma() {
         if (idx === -1) throw new Error('Shift not found');
         const next = { ...store.shifts[idx], ...data, updatedAt: new Date() };
         if (data.expectedCash !== undefined) next.expectedCash = dec(data.expectedCash);
-        if (data.actualCash !== undefined) next.actualCash = dec(data.actualCash);
+        if (data.actualCash !== undefined) {
+          next.actualCash = dec(data.actualCash);
+          if (data.closingCash === undefined) next.closingCash = dec(data.actualCash);
+        }
+        if (data.closingCash !== undefined) {
+          next.closingCash = dec(data.closingCash);
+          if (data.actualCash === undefined) next.actualCash = dec(data.closingCash);
+        }
+        if (data.notes !== undefined) next.notes = data.notes;
         if (data.cashDifference !== undefined) next.cashDifference = dec(data.cashDifference);
         store.shifts[idx] = next;
         return {
           ...next,
+          closingCash: next.closingCash ?? next.actualCash ?? null,
+          notes: next.notes ?? null,
           ...(include?.branch ? { branch: store.branches.find((b) => b.id === next.branchId) } : {}),
           ...(include?.employee ? { employee: store.employees.find((e) => e.id === next.employeeId) } : {}),
         };

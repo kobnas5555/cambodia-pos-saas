@@ -327,14 +327,34 @@ export const createSaleReturnSchema = z.object({
 // Phase 9: Shifts, Expense Types, Expenses & Incomes
 // ============================================================================
 
+export const listShiftsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  branchId: z.string().uuid().optional(),
+  employeeId: z.string().uuid().optional(),
+  status: z.enum(['OPEN', 'CLOSED']).optional(),
+  search: z.string().trim().optional(),
+  startDate: z.string().trim().optional(),
+  endDate: z.string().trim().optional(),
+});
+
 export const openShiftSchema = z.object({
   branchId: z.string().uuid(),
   openingCash: decimalString().default('0'),
+  notes: z.string().trim().max(1000).optional().nullable(),
 });
 
-export const closeShiftSchema = z.object({
-  actualCash: decimalString(),
-});
+export const closeShiftSchema = z
+  .object({
+    actualCash: decimalString().optional(),
+    closingCash: decimalString().optional(),
+    closingNotes: z.string().trim().max(1000).optional().nullable(),
+    notes: z.string().trim().max(1000).optional().nullable(),
+  })
+  .refine((data) => data.actualCash !== undefined || data.closingCash !== undefined, {
+    message: 'Either actualCash or closingCash must be provided',
+    path: ['closingCash'],
+  });
 
 export const createExpenseTypeSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -507,6 +527,7 @@ export type CreatePurchasePaymentInput = z.infer<typeof createPurchasePaymentSch
 export type CreateStockAdjustmentInput = z.infer<typeof createStockAdjustmentSchema>;
 export type CreateSaleReturnInput = z.infer<typeof createSaleReturnSchema>;
 
+export type ListShiftsQueryInput = z.infer<typeof listShiftsQuerySchema>;
 export type OpenShiftInput = z.infer<typeof openShiftSchema>;
 export type CloseShiftInput = z.infer<typeof closeShiftSchema>;
 export type CreateExpenseTypeInput = z.infer<typeof createExpenseTypeSchema>;

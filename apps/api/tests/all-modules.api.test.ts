@@ -2238,12 +2238,13 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(blockedReport.status).toBe(403);
     expect(blockedReport.body.error.code).toBe('PERMISSION_DENIED');
 
-    // Open cashier shift ($50 opening)
+    // Open cashier shift ($50 opening) with notes
     const openShiftRes = await request(app)
       .post('/api/v1/shifts/open')
       .set('Authorization', `Bearer ${token}`)
-      .send({ branchId, openingCash: '50.00' });
+      .send({ branchId, openingCash: '50.00', notes: 'Morning cashier shift float' });
     expect(openShiftRes.status).toBe(201);
+    expect(openShiftRes.body.data.notes).toBe('Morning cashier shift float');
     const shiftId = openShiftRes.body.data.id;
 
     // Order 1: 2 units ($20 - $2 discount = $18 ABA), Order 2: 3 units ($30 CASH)
@@ -2284,12 +2285,15 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
       });
     expect(retRes.status).toBe(201);
 
-    // Close shift: expectedCash = 50 + 30 - 10 = 70.00, actual = 69.00 -> diff = -1.00
+    // Close shift with closingCash & notes: expectedCash = 50 + 30 - 10 = 70.00, actual = 69.00 -> diff = -1.00
     const closeShiftRes = await request(app)
       .post(`/api/v1/shifts/${shiftId}/close`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ actualCash: '69.00' });
+      .send({ closingCash: '69.00', notes: 'Evening closing count' });
     expect(closeShiftRes.status).toBe(200);
+    expect(closeShiftRes.body.data.notes).toBe('Evening closing count');
+    expect(Number(closeShiftRes.body.data.closingCash)).toBe(69);
+    expect(Number(closeShiftRes.body.data.actualCash)).toBe(69);
 
     const getShiftRes = await request(app)
       .get(`/api/v1/shifts/${shiftId}`)
@@ -2298,6 +2302,35 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(getShiftRes.body.data.id).toBe(shiftId);
     expect(getShiftRes.body.data.status).toBe('CLOSED');
     expect(getShiftRes.body.data.orders.length).toBeGreaterThanOrEqual(1);
+
+    // Verify shifts listing with pagination and search
+    const shiftsListRes = await request(app)
+      .get(`/api/v1/shifts?branchId=${branchId}&status=CLOSED&page=1&limit=10&search=${encodeURIComponent(getShiftRes.body.data.shiftNumber)}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(shiftsListRes.status).toBe(200);
+    expect(shiftsListRes.body.data.length).toBe(1);
+    expect(shiftsListRes.body.pagination).toBeDefined();
+    expect(shiftsListRes.body.pagination.page).toBe(1);
+    expect(shiftsListRes.body.pagination.limit).toBe(10);
+    expect(shiftsListRes.body.pagination.total).toBe(1);
+
+    // Verify all 13 schema fields of shifts
+    const verifiedShift = shiftsListRes.body.data.find((s: any) => s.id === shiftId);
+    expect(verifiedShift).toBeDefined();
+    expect(verifiedShift.id).toBe(shiftId);
+    expect(verifiedShift.tenantId).toBeDefined();
+    expect(verifiedShift.branchId).toBe(branchId);
+    expect(verifiedShift.employeeId).toBeDefined();
+    expect(verifiedShift.shiftNumber).toBeDefined();
+    expect(Number(verifiedShift.openingCash)).toBe(50);
+    expect(Number(verifiedShift.expectedCash)).toBe(70);
+    expect(Number(verifiedShift.actualCash)).toBe(69);
+    expect(Number(verifiedShift.closingCash)).toBe(69);
+    expect(Number(verifiedShift.cashDifference)).toBe(-1);
+    expect(verifiedShift.status).toBe('CLOSED');
+    expect(verifiedShift.notes).toBe('Evening closing count');
+    expect(verifiedShift.openedAt).toBeDefined();
+    expect(verifiedShift.closedAt).toBeDefined();
 
     // Purchase ($12 total, $5 paid, $7 due)
     await request(app)

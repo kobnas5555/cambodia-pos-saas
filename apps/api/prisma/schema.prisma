@@ -764,7 +764,9 @@ model Shift {
   openingCash    Decimal   @map("opening_cash") @db.Decimal(18, 2)
   expectedCash   Decimal   @default(0) @map("expected_cash") @db.Decimal(18, 2)
   actualCash     Decimal?  @map("actual_cash") @db.Decimal(18, 2)
+  closingCash    Decimal?  @map("closing_cash") @db.Decimal(18, 2)
   cashDifference Decimal?  @map("cash_difference") @db.Decimal(18, 2)
+  notes          String?   @db.Text
   openedAt       DateTime  @default(now()) @map("opened_at") @db.Timestamptz(6)
   closedAt       DateTime? @map("closed_at") @db.Timestamptz(6)
   status         String    @default("OPEN") @db.VarChar(30)

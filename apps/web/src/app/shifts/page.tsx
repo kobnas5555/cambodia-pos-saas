@@ -5,10 +5,14 @@ import {
   AlertTriangle,
   ArrowRight,
   Calendar,
+  Check,
   CheckCircle2,
   Clock,
+  Copy,
   DollarSign,
   Eye,
+  FileText,
+  Filter,
   Lock,
   Plus,
   Printer,
@@ -24,6 +28,7 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppShell } from '@/components/AppShell';
+import { DataTablePagination } from '@/components/DataTablePagination';
 import { useAuth } from '@/contexts/AuthContext';
 import { useI18n } from '@/contexts/I18nContext';
 import { apiRequest, ApiClientError } from '@/lib/api';
@@ -36,7 +41,9 @@ interface ShiftRow {
   openingCash: string;
   expectedCash: string;
   actualCash: string | null;
+  closingCash?: string | null;
   cashDifference: string | null;
+  notes?: string | null;
   openedAt: string;
   closedAt: string | null;
   status: 'OPEN' | 'CLOSED';
@@ -99,14 +106,22 @@ export default function ShiftsPage() {
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  // Filters
+  // Filters & Search
   const [branchScope, setBranchScope] = useState<'ACTIVE' | 'ALL'>('ACTIVE');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'OPEN' | 'CLOSED'>('ALL');
   const [search, setSearch] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   // Open Shift Form State
   const [openModal, setOpenModal] = useState(false);
   const [openingCash, setOpeningCash] = useState('100.00');
+  const [openingNotes, setOpeningNotes] = useState('');
   const [openingCashCur, setOpeningCashCur] = useState<CurrencyCode>(cur);
   const [openingBranchId, setOpeningBranchId] = useState('');
   const [openingSaving, setOpeningSaving] = useState(false);
@@ -119,6 +134,14 @@ export default function ShiftsPage() {
   // Shift Detail Modal
   const [detail, setDetail] = useState<ShiftDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const copyToClipboard = (text: string, id: string) => {
+    void navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => {
+      setCopiedId((prev) => (prev === id ? null : prev));
+    }, 2000);
+  };
 
   const loadAll = useCallback(async () => {
     if (!activeTenant) return;
@@ -164,10 +187,15 @@ export default function ShiftsPage() {
     try {
       await apiRequest('/shifts/open', {
         method: 'POST',
-        body: JSON.stringify({ branchId, openingCash }),
+        body: JSON.stringify({
+          branchId,
+          openingCash,
+          notes: openingNotes.trim() ? openingNotes.trim() : undefined,
+        }),
       });
       setFeedback('Cashier shift opened successfully.');
       setOpenModal(false);
+      setOpeningNotes('');
       await loadAll();
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Unable to open shift');
@@ -184,7 +212,12 @@ export default function ShiftsPage() {
     try {
       await apiRequest(`/shifts/${currentShift.id}/close`, {
         method: 'POST',
-        body: JSON.stringify({ actualCash }),
+        body: JSON.stringify({
+          actualCash,
+          closingCash: actualCash,
+          notes: closingNotes.trim() ? closingNotes.trim() : undefined,
+          closingNotes: closingNotes.trim() ? closingNotes.trim() : undefined,
+        }),
       });
       setFeedback('Shift closed and drawer cash reconciled.');
       setClosingNotes('');
@@ -228,16 +261,34 @@ export default function ShiftsPage() {
   const filteredShifts = useMemo(() => {
     return shifts.filter((s) => {
       if (statusFilter !== 'ALL' && s.status !== statusFilter) return false;
+      if (startDate && new Date(s.openedAt) < new Date(startDate)) return false;
+      if (endDate && new Date(s.openedAt) > new Date(endDate + 'T23:59:59')) return false;
       if (search.trim()) {
         const q = search.toLowerCase();
+        const matchesId = s.id.toLowerCase().includes(q);
         const matchesNumber = s.shiftNumber.toLowerCase().includes(q);
-        const matchesCashier = s.employee.name.toLowerCase().includes(q);
-        const matchesBranch = s.branch.name.toLowerCase().includes(q);
-        if (!matchesNumber && !matchesCashier && !matchesBranch) return false;
+        const matchesCashier =
+          s.employee.name.toLowerCase().includes(q) ||
+          (s.employee.employeeCode?.toLowerCase().includes(q) ?? false);
+        const matchesBranch =
+          s.branch.name.toLowerCase().includes(q) ||
+          (s.branch.branchCode?.toLowerCase().includes(q) ?? false);
+        const matchesNotes = s.notes ? s.notes.toLowerCase().includes(q) : false;
+        if (!matchesId && !matchesNumber && !matchesCashier && !matchesBranch && !matchesNotes)
+          return false;
       }
       return true;
     });
-  }, [shifts, statusFilter, search]);
+  }, [shifts, statusFilter, search, startDate, endDate]);
+
+  const paginatedShifts = useMemo(() => {
+    const start = (page - 1) * pageSize;
+    return filteredShifts.slice(start, start + pageSize);
+  }, [filteredShifts, page, pageSize]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusFilter, branchScope, startDate, endDate]);
 
   const formatDuration = (openedStr: string, closedStr: string | null) => {
     const start = new Date(openedStr).getTime();
@@ -636,7 +687,7 @@ export default function ShiftsPage() {
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Shift #, cashier, branch..."
+                  placeholder="Shift #, cashier, notes, branch..."
                   className="w-full rounded-xl border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs focus:border-emerald-500 focus:outline-none"
                 />
               </div>
@@ -659,6 +710,40 @@ export default function ShiftsPage() {
                 <option value="ACTIVE">{activeBranch?.name ?? 'Current Branch'}</option>
                 <option value="ALL">All Branches</option>
               </select>
+
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2 py-1 text-xs">
+                <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="bg-transparent text-xs text-slate-700 focus:outline-none"
+                  aria-label="Start date filter"
+                />
+                <span className="text-slate-400">&ndash;</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="bg-transparent text-xs text-slate-700 focus:outline-none"
+                  aria-label="End date filter"
+                />
+              </div>
+
+              {(search || startDate || endDate || statusFilter !== 'ALL') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch('');
+                    setStartDate('');
+                    setEndDate('');
+                    setStatusFilter('ALL');
+                  }}
+                  className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition"
+                >
+                  Clear
+                </button>
+              )}
             </div>
           </div>
 
@@ -668,29 +753,32 @@ export default function ShiftsPage() {
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
+                    <th className="px-5 py-3.5">Shift ID</th>
                     <th className="px-5 py-3.5">Shift #</th>
                     <th className="px-5 py-3.5">Cashier</th>
                     <th className="px-5 py-3.5">Branch</th>
-                    <th className="px-5 py-3.5">Time Frame</th>
+                    <th className="px-5 py-3.5">Status</th>
                     <th className="px-5 py-3.5">Starting Float</th>
                     <th className="px-5 py-3.5">Expected Cash</th>
-                    <th className="px-5 py-3.5">Actual Cash</th>
+                    <th className="px-5 py-3.5">Closing Cash</th>
                     <th className="px-5 py-3.5">Variance</th>
-                    <th className="px-5 py-3.5">Status</th>
+                    <th className="px-5 py-3.5">Notes</th>
+                    <th className="px-5 py-3.5">Time Frame</th>
+                    <th className="px-5 py-3.5">Orders</th>
                     <th className="px-5 py-3.5 text-right">{t.common.actions}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {loading ? (
                     <tr>
-                      <td colSpan={10} className="px-5 py-12 text-center text-slate-500">
+                      <td colSpan={13} className="px-5 py-12 text-center text-slate-500">
                         <RefreshCw className="mx-auto h-6 w-6 animate-spin text-emerald-600" />
                         <span className="mt-2 block text-xs">{t.common.loading}</span>
                       </td>
                     </tr>
                   ) : filteredShifts.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-5 py-12 text-center text-slate-500">
+                      <td colSpan={13} className="px-5 py-12 text-center text-slate-500">
                         <Clock className="mx-auto h-8 w-8 text-slate-300" />
                         <p className="mt-2 text-sm font-medium text-slate-900">{t.common.noData}</p>
                         <p className="mt-1 text-xs text-slate-500">
@@ -699,46 +787,98 @@ export default function ShiftsPage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredShifts.map((s) => {
+                    paginatedShifts.map((s) => {
                       const diffNum = s.cashDifference ? parseFloat(s.cashDifference) : 0;
                       return (
                         <tr key={s.id} className="hover:bg-slate-50/50 transition">
-                          <td className="px-5 py-4 font-mono font-semibold text-slate-900">
-                            {s.shiftNumber}
-                          </td>
-                          <td className="px-5 py-4 font-medium text-slate-800">
-                            {s.employee.name}
-                          </td>
-                          <td className="px-5 py-4 text-xs text-slate-600">{s.branch.name}</td>
-                          <td className="px-5 py-4 text-xs text-slate-500">
-                            <div>{new Date(s.openedAt).toLocaleDateString()}</div>
-                            <div className="text-[10px] text-slate-400">
-                              {new Date(s.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              {' '}&rarr;{' '}
-                              {s.closedAt
-                                ? new Date(s.closedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                                : 'Active'}{' '}
-                              ({formatDuration(s.openedAt, s.closedAt)})
+                          <td className="px-5 py-4 font-mono text-xs">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-slate-500 font-medium">
+                                {s.id.slice(0, 8)}...
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(s.id, s.id)}
+                                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+                                title="Copy full UUID"
+                              >
+                                {copiedId === s.id ? (
+                                  <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                ) : (
+                                  <Copy className="h-3.5 w-3.5" />
+                                )}
+                              </button>
                             </div>
                           </td>
+                          <td className="px-5 py-4 font-mono font-semibold text-slate-900">
+                            <button
+                              type="button"
+                              onClick={() => void openShiftDetail(s.id)}
+                              className="font-bold text-emerald-700 hover:underline"
+                            >
+                              {s.shiftNumber}
+                            </button>
+                          </td>
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-2">
+                              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 font-semibold text-xs text-slate-700">
+                                {s.employee.name.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="font-medium text-slate-800 text-xs">
+                                  {s.employee.name}
+                                </div>
+                                {s.employee.employeeCode && (
+                                  <div className="font-mono text-[10px] text-slate-400">
+                                    {s.employee.employeeCode}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-5 py-4 text-xs text-slate-600">
+                            <div className="font-medium text-slate-800">{s.branch.name}</div>
+                            {s.branch.branchCode && (
+                              <div className="font-mono text-[10px] text-slate-400">
+                                {s.branch.branchCode}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-5 py-4">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                s.status === 'OPEN'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-slate-100 text-slate-700 border border-slate-200'
+                              }`}
+                            >
+                              {s.status}
+                            </span>
+                          </td>
                           <td className="px-5 py-4 font-medium text-slate-700">
-                            {formatCurrency(s.openingCash, cur)}
+                            <DualAmount amount={s.openingCash} currencyCode={cur} />
                           </td>
                           <td className="px-5 py-4 font-semibold text-slate-900">
-                            {formatCurrency(s.expectedCash, cur)}
+                            <DualAmount amount={s.expectedCash} currencyCode={cur} />
                           </td>
                           <td className="px-5 py-4 font-bold text-slate-900">
-                            {s.actualCash !== null ? formatCurrency(s.actualCash, cur) : '—'}
+                            {s.closingCash !== null && s.closingCash !== undefined ? (
+                              <DualAmount amount={s.closingCash} currencyCode={cur} />
+                            ) : s.actualCash !== null ? (
+                              <DualAmount amount={s.actualCash} currencyCode={cur} />
+                            ) : (
+                              <span className="text-slate-400 font-normal">&mdash;</span>
+                            )}
                           </td>
                           <td className="px-5 py-4">
                             {s.cashDifference !== null ? (
                               <span
                                 className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
                                   Math.abs(diffNum) < 0.005
-                                    ? 'bg-emerald-50 text-emerald-700'
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                     : diffNum < 0
-                                    ? 'bg-rose-50 text-rose-700'
-                                    : 'bg-blue-50 text-blue-700'
+                                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                    : 'bg-blue-50 text-blue-700 border border-blue-200'
                                 }`}
                               >
                                 {diffNum > 0 ? '+' : ''}
@@ -748,15 +888,39 @@ export default function ShiftsPage() {
                               <span className="text-slate-400 text-xs">&mdash;</span>
                             )}
                           </td>
+                          <td className="px-5 py-4 text-xs text-slate-500 max-w-[130px] truncate">
+                            {s.notes ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-slate-700"
+                                title={s.notes}
+                              >
+                                <FileText className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                                <span className="truncate">{s.notes}</span>
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">&mdash;</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-4 text-xs text-slate-500">
+                            <div>{new Date(s.openedAt).toLocaleDateString()}</div>
+                            <div className="text-[10px] text-slate-400">
+                              {new Date(s.openedAt).toLocaleTimeString([], {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                              {' '}&rarr;{' '}
+                              {s.closedAt
+                                ? new Date(s.closedAt).toLocaleTimeString([], {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : 'Active'}{' '}
+                              ({formatDuration(s.openedAt, s.closedAt)})
+                            </div>
+                          </td>
                           <td className="px-5 py-4">
-                            <span
-                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                                s.status === 'OPEN'
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                  : 'bg-slate-100 text-slate-700'
-                              }`}
-                            >
-                              {s.status}
+                            <span className="rounded-lg bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                              {s._count?.orders ?? 0}
                             </span>
                           </td>
                           <td className="px-5 py-4 text-right">
@@ -777,6 +941,18 @@ export default function ShiftsPage() {
               </table>
             </div>
           </div>
+
+          <DataTablePagination
+            currentPage={page}
+            pageSize={pageSize}
+            totalItems={filteredShifts.length}
+            onPageChange={setPage}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize);
+              setPage(1);
+            }}
+            itemName="shifts"
+          />
         </div>
 
         {/* Open Shift Modal */}
@@ -846,6 +1022,19 @@ export default function ShiftsPage() {
                   </div>
                 </div>
 
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Opening Notes / Starting Remarks (Optional)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={openingNotes}
+                    onChange={(e) => setOpeningNotes(e.target.value)}
+                    placeholder="Morning float notes, register remarks, cash drawer condition..."
+                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
                 <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
                   <button
                     type="button"
@@ -895,6 +1084,21 @@ export default function ShiftsPage() {
                     </div>
                     <div className="font-mono text-xs text-slate-500">
                       {detail.shiftNumber} &bull; {detail.branch.name}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5 font-mono text-[11px] text-slate-500">
+                      <span>ID: {detail.id}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(detail.id, `modal-${detail.id}`)}
+                        className="rounded p-0.5 text-slate-400 hover:text-slate-700 transition"
+                        title="Copy UUID"
+                      >
+                        {copiedId === `modal-${detail.id}` ? (
+                          <Check className="h-3.5 w-3.5 text-emerald-600" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -946,6 +1150,14 @@ export default function ShiftsPage() {
                 </div>
               </div>
 
+              {/* Shift Notes Banner if available */}
+              {detail.notes && (
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs text-amber-900">
+                  <span className="font-semibold block text-amber-950 mb-0.5">Shift Notes / Remarks:</span>
+                  <p className="whitespace-pre-wrap">{detail.notes}</p>
+                </div>
+              )}
+
               {/* Cash Reconciliation Summary Matrix */}
               <div className="mt-5 rounded-xl border border-slate-200 divide-y divide-slate-100 text-sm">
                 <div className="flex justify-between p-3.5 bg-slate-50/70 font-semibold text-slate-700">
@@ -966,9 +1178,13 @@ export default function ShiftsPage() {
                   <span>{formatCurrency(detail.expectedCash, cur)}</span>
                 </div>
                 <div className="flex justify-between p-3.5 font-bold text-slate-900">
-                  <span>Actual Cash Counted</span>
+                  <span>Actual / Closing Cash Counted</span>
                   <span className="text-base">
-                    {detail.actualCash !== null ? formatCurrency(detail.actualCash, cur) : '—'}
+                    {detail.closingCash !== null && detail.closingCash !== undefined
+                      ? formatCurrency(detail.closingCash, cur)
+                      : detail.actualCash !== null
+                      ? formatCurrency(detail.actualCash, cur)
+                      : '—'}
                   </span>
                 </div>
                 <div className="flex justify-between p-3.5 font-bold">
