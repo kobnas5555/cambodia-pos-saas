@@ -107,6 +107,8 @@ export default function AccessPage() {
   // Filters for Permissions tab
   const [permSearch, setPermSearch] = useState('');
   const [permModuleFilter, setPermModuleFilter] = useState<string>('ALL');
+  const [permPage, setPermPage] = useState<number>(1);
+  const [permPageSize, setPermPageSize] = useState<number>(10);
 
   // Branch Access updating state
   const [updatingBranchEmpId, setUpdatingBranchEmpId] = useState<string | null>(null);
@@ -243,6 +245,15 @@ export default function AccessPage() {
       return true;
     });
   }, [permissions, permModuleFilter, permSearch]);
+
+  useEffect(() => {
+    setPermPage(1);
+  }, [permSearch, permModuleFilter]);
+
+  const paginatedPermissions = useMemo(() => {
+    const start = (permPage - 1) * permPageSize;
+    return filteredPermissions.slice(start, start + permPageSize);
+  }, [filteredPermissions, permPage, permPageSize]);
 
   // Permission modules list
   const permissionModules = useMemo(() => {
@@ -1200,20 +1211,23 @@ export default function AccessPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredPermissions.length === 0 ? (
+                  {paginatedPermissions.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
                         No permissions found matching criteria.
                       </td>
                     </tr>
                   ) : (
-                    filteredPermissions.map((perm) => {
+                    paginatedPermissions.map((perm) => {
                       const rolesWithPerm = roles.filter((r) => r.permissions.includes(perm.code));
                       return (
                         <tr key={perm.id} className="hover:bg-slate-50/60 transition-colors">
                           <td className="px-4 py-3 font-mono text-xs font-bold text-slate-900">
                             <span className="rounded bg-slate-100 px-2 py-0.5 text-slate-800">
                               {perm.code}
+                            </span>
+                            <span className="block text-[10px] font-normal text-slate-400 font-mono mt-0.5">
+                              ID: {perm.id.slice(0, 8)}
                             </span>
                           </td>
                           <td className="px-4 py-3">
@@ -1246,6 +1260,15 @@ export default function AccessPage() {
                   )}
                 </tbody>
               </table>
+
+              <DataTablePagination
+                currentPage={permPage}
+                pageSize={permPageSize}
+                totalItems={filteredPermissions.length}
+                onPageChange={setPermPage}
+                onPageSizeChange={setPermPageSize}
+                itemName="permissions"
+              />
             </div>
           </div>
         )}

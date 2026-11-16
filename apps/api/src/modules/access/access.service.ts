@@ -15,10 +15,25 @@ import { recordActivity } from '../activity-logs/activity-logs.service';
 import { ensurePermissionsExist } from '../auth/auth.service';
 import type { ActorInfo } from '../tenants/tenants.service';
 
-export async function listPermissions() {
+export async function listPermissions(options?: { search?: string; module?: string }) {
+  const { search, module } = options ?? {};
   return prisma.$transaction(async (tx) => {
     await ensurePermissionsExist(tx);
-    return tx.permission.findMany({ orderBy: [{ module: 'asc' }, { code: 'asc' }] });
+    return tx.permission.findMany({
+      where: {
+        ...(module && module !== 'ALL' ? { module } : {}),
+        ...(search
+          ? {
+              OR: [
+                { code: { contains: search, mode: 'insensitive' } },
+                { module: { contains: search, mode: 'insensitive' } },
+                { description: { contains: search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ module: 'asc' }, { code: 'asc' }],
+    });
   });
 }
 

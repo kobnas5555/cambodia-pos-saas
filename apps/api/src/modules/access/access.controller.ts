@@ -2,8 +2,8 @@ import type { Request, Response } from 'express';
 import { asyncHandler } from '../../common/utils/asyncHandler';
 import * as accessService from './access.service';
 
-export const getPermissions = asyncHandler(async (_req: Request, res: Response) => {
-  const data = await accessService.listPermissions();
+export const getPermissions = asyncHandler(async (req: Request, res: Response) => {
+  const data = await accessService.listPermissions(req.query as any);
   res.json({ success: true, data });
 });
 
