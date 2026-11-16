@@ -1309,6 +1309,47 @@ export default function AccessPage() {
               </span>
             </div>
 
+            {/* Filter Bar */}
+            <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="relative min-w-[220px] flex-1">
+                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <input
+                  value={empSearch}
+                  onChange={(e) => setEmpSearch(e.target.value)}
+                  placeholder="Search staff in branch matrix..."
+                  className="w-full rounded-lg border border-slate-300 py-1.5 pl-9 pr-3 text-sm"
+                />
+              </div>
+
+              <div>
+                <select
+                  value={empBranchFilter}
+                  onChange={(e) => setEmpBranchFilter(e.target.value)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                >
+                  <option value="ALL">All Branches ({activeTenant?.branches?.length ?? 0})</option>
+                  {(activeTenant?.branches ?? []).map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} ({b.branchCode})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {(empSearch || empBranchFilter !== 'ALL') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEmpSearch('');
+                    setEmpBranchFilter('ALL');
+                  }}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+
             <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
@@ -1325,7 +1366,17 @@ export default function AccessPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {employees.map((emp) => {
+                  {paginatedEmployees.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={3 + (activeTenant?.branches?.length ?? 0)}
+                        className="px-4 py-8 text-center text-slate-500"
+                      >
+                        No staff members found matching search criteria.
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedEmployees.map((emp) => {
                     const isBusy = updatingBranchEmpId === emp.id;
                     return (
                       <tr key={emp.id} className="hover:bg-slate-50/60 transition-colors">
@@ -1393,7 +1444,7 @@ export default function AccessPage() {
                         </td>
                       </tr>
                     );
-                  })}
+                  }))}
                 </tbody>
               </table>
 

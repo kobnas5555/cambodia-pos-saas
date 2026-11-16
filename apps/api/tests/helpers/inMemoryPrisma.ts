@@ -147,6 +147,16 @@ export function createInMemoryPrisma() {
         if (!hasAccess) return false;
         continue;
       }
+      if (key === 'employee' && val && typeof val === 'object') {
+        const emp = store.employees.find((e) => e.id === row.employeeId);
+        if (!emp || !matchesWhere(emp, val)) return false;
+        continue;
+      }
+      if (key === 'branch' && val && typeof val === 'object') {
+        const branch = store.branches.find((b) => b.id === row.branchId);
+        if (!branch || !matchesWhere(branch, val)) return false;
+        continue;
+      }
       if (key === 'role' && val && typeof val === 'object') {
         const role = store.roles.find((r) => r.id === row.roleId);
         if (!role || !matchesWhere(role, val)) return false;
@@ -762,6 +772,31 @@ export function createInMemoryPrisma() {
     },
 
     employeeBranchAccess: {
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.employeeBranchAccess.filter((ba) => matchesWhere(ba, where)).length,
+      findMany: async ({
+        where,
+        include,
+        skip,
+        take,
+      }: {
+        where?: Row;
+        include?: Row;
+        skip?: number;
+        take?: number;
+      } = {}) => {
+        let list = store.employeeBranchAccess.filter((ba) => matchesWhere(ba, where));
+        if (typeof skip === 'number') list = list.slice(skip);
+        if (typeof take === 'number') list = list.slice(0, take);
+        return list.map((ba) => {
+          const out: Row = { ...ba };
+          if (include?.employee)
+            out.employee = store.employees.find((e) => e.id === ba.employeeId) ?? null;
+          if (include?.branch)
+            out.branch = store.branches.find((b) => b.id === ba.branchId) ?? null;
+          return out;
+        });
+      },
       create: async ({ data }: { data: Row }) => {
         const row = { id: uuid(), ...data };
         store.employeeBranchAccess.push(row);

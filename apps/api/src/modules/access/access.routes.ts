@@ -36,6 +36,7 @@ router.delete(
 );
 
 router.get('/employees', requirePermission('employees.view'), controller.getEmployees);
+router.get('/employee-branch-access', requirePermission('employees.view'), controller.getEmployeeBranchAccess);
 router.post(
   '/employees',
   requirePermission('employees.create'),
