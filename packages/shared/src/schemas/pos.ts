@@ -338,6 +338,22 @@ export const createSaleReturnSchema = z.object({
     .min(1, 'Select at least one item to return'),
 });
 
+export const listSaleReturnsQuerySchema = z.object({
+  search: z.string().optional(),
+  orderId: z.string().uuid().optional(),
+  branchId: z.string().uuid().optional(),
+  employeeId: z.string().uuid().optional(),
+  refundMethod: z.string().optional(),
+  restockStatus: z.string().optional(),
+  status: z.string().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListSaleReturnsQueryInput = z.infer<typeof listSaleReturnsQuerySchema>;
+
 // ============================================================================
 // Phase 9: Shifts, Expense Types, Expenses & Incomes
 // ============================================================================

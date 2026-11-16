@@ -168,16 +168,23 @@ interface PaymentRow {
 
 interface ReturnRow {
   id: string;
+  tenantId?: string;
+  branchId?: string;
+  orderId?: string;
   returnNumber: string;
+  employeeId?: string;
   returnReason: string;
+  subtotal: string;
   refundAmount: string;
   refundMethod: string;
   restockStatus: string;
   status: string;
   returnedAt: string;
-  branch: { name: string };
-  employee: { name: string };
-  order: { id: string; orderNumber: string; currencyCode: CurrencyCode };
+  createdAt?: string;
+  branch: { id?: string; name: string; branchCode?: string };
+  employee: { id?: string; name: string; employeeCode?: string };
+  order: { id: string; orderNumber: string; currencyCode: CurrencyCode; totalAmount?: string };
+  saleReturnItems?: Array<{ id: string; quantity: string; unitPrice: string; refundAmount: string; restockQuantity: string }>;
 }
 
 interface ReturnDetail {
@@ -227,6 +234,10 @@ export default function SalesPage() {
   const [paymentStartDate, setPaymentStartDate] = useState('');
   const [paymentEndDate, setPaymentEndDate] = useState('');
   const [refundMethodFilter, setRefundMethodFilter] = useState('ALL');
+  const [returnRestockFilter, setReturnRestockFilter] = useState('ALL');
+  const [returnStatusFilter, setReturnStatusFilter] = useState('ALL');
+  const [returnStartDate, setReturnStartDate] = useState('');
+  const [returnEndDate, setReturnEndDate] = useState('');
 
   // Pagination states
   const [orderPage, setOrderPage] = useState(1);
@@ -294,6 +305,10 @@ export default function SalesPage() {
       else if (branchFilter !== 'ALL') returnQs.set('branchId', branchFilter);
       if (search.trim()) returnQs.set('search', search.trim());
       if (refundMethodFilter !== 'ALL') returnQs.set('refundMethod', refundMethodFilter);
+      if (returnRestockFilter !== 'ALL') returnQs.set('restockStatus', returnRestockFilter);
+      if (returnStatusFilter !== 'ALL') returnQs.set('status', returnStatusFilter);
+      if (returnStartDate) returnQs.set('startDate', returnStartDate);
+      if (returnEndDate) returnQs.set('endDate', returnEndDate);
 
       const [ords, items, pays, rets] = await Promise.all([
         apiRequest<OrderSummary[]>(`/orders?${orderQs.toString()}`),
@@ -323,6 +338,10 @@ export default function SalesPage() {
     paymentStartDate,
     paymentEndDate,
     refundMethodFilter,
+    returnRestockFilter,
+    returnStatusFilter,
+    returnStartDate,
+    returnEndDate,
   ]);
 
   useEffect(() => {
@@ -646,10 +665,64 @@ export default function SalesPage() {
     branchFilter,
   ]);
 
+  const filteredReturns = useMemo(() => {
+    return returnsList.filter((r) => {
+      if (refundMethodFilter !== 'ALL' && r.refundMethod !== refundMethodFilter) return false;
+      if (returnRestockFilter !== 'ALL' && r.restockStatus !== returnRestockFilter) return false;
+      if (returnStatusFilter !== 'ALL' && r.status !== returnStatusFilter) return false;
+      if (branchFilter !== 'ALL' && r.branch?.id && r.branch.id !== branchFilter) return false;
+      if (returnStartDate && new Date(r.returnedAt) < new Date(returnStartDate)) return false;
+      if (returnEndDate && new Date(r.returnedAt) > new Date(returnEndDate + 'T23:59:59')) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const matchesId = r.id.toLowerCase().includes(q);
+        const matchesReturn = r.returnNumber.toLowerCase().includes(q);
+        const matchesOrder = r.order.orderNumber.toLowerCase().includes(q);
+        const matchesBranch = r.branch.name.toLowerCase().includes(q);
+        const matchesEmp = r.employee.name.toLowerCase().includes(q);
+        const matchesReason = r.returnReason.toLowerCase().includes(q);
+        const matchesMethod = r.refundMethod.toLowerCase().includes(q);
+        if (
+          !matchesId &&
+          !matchesReturn &&
+          !matchesOrder &&
+          !matchesBranch &&
+          !matchesEmp &&
+          !matchesReason &&
+          !matchesMethod
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [
+    returnsList,
+    refundMethodFilter,
+    returnRestockFilter,
+    returnStatusFilter,
+    branchFilter,
+    returnStartDate,
+    returnEndDate,
+    search,
+  ]);
+
   const paginatedReturns = useMemo(() => {
     const start = (returnPage - 1) * returnPageSize;
-    return returnsList.slice(start, start + returnPageSize);
-  }, [returnsList, returnPage, returnPageSize]);
+    return filteredReturns.slice(start, start + returnPageSize);
+  }, [filteredReturns, returnPage, returnPageSize]);
+
+  useEffect(() => {
+    setReturnPage(1);
+  }, [
+    refundMethodFilter,
+    returnRestockFilter,
+    returnStatusFilter,
+    returnStartDate,
+    returnEndDate,
+    search,
+    branchFilter,
+  ]);
 
   return (
     <AppShell>
@@ -955,19 +1028,83 @@ export default function SalesPage() {
               )}
 
               {tab === 'returns' && (
-                <select
-                  aria-label="Filter refunds by method"
-                  value={refundMethodFilter}
-                  onChange={(e) => setRefundMethodFilter(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
-                >
-                  <option value="ALL">All Refund Methods</option>
-                  {PAYMENT_METHODS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <select
+                    aria-label="Filter refunds by method"
+                    value={refundMethodFilter}
+                    onChange={(e) => setRefundMethodFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="ALL">All Refund Methods</option>
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    aria-label="Filter returns by restock status"
+                    value={returnRestockFilter}
+                    onChange={(e) => setReturnRestockFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="ALL">All Restock Statuses</option>
+                    <option value="RESTOCKED">RESTOCKED</option>
+                    <option value="PARTIAL">PARTIAL</option>
+                    <option value="NONE">NONE</option>
+                  </select>
+
+                  <select
+                    aria-label="Filter returns by status"
+                    value={returnStatusFilter}
+                    onChange={(e) => setReturnStatusFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="ALL">All Statuses</option>
+                    <option value="COMPLETED">COMPLETED</option>
+                  </select>
+
+                  {/* Return Date Range */}
+                  <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
+                    <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="date"
+                      value={returnStartDate}
+                      onChange={(e) => setReturnStartDate(e.target.value)}
+                      className="bg-transparent text-xs text-slate-700 focus:outline-none"
+                      aria-label="Return start date filter"
+                    />
+                    <span className="text-slate-400 text-xs">to</span>
+                    <input
+                      type="date"
+                      value={returnEndDate}
+                      onChange={(e) => setReturnEndDate(e.target.value)}
+                      className="bg-transparent text-xs text-slate-700 focus:outline-none"
+                      aria-label="Return end date filter"
+                    />
+                  </div>
+
+                  {(refundMethodFilter !== 'ALL' ||
+                    returnRestockFilter !== 'ALL' ||
+                    returnStatusFilter !== 'ALL' ||
+                    returnStartDate ||
+                    returnEndDate) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRefundMethodFilter('ALL');
+                        setReturnRestockFilter('ALL');
+                        setReturnStatusFilter('ALL');
+                        setReturnStartDate('');
+                        setReturnEndDate('');
+                      }}
+                      className="rounded-xl border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition shadow-sm"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </>
               )}
 
               {/* Search Bar */}
@@ -1551,13 +1688,16 @@ export default function SalesPage() {
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50/75 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
+                    <th className="px-5 py-3.5">Return ID</th>
                     <th className="px-5 py-3.5">Return #</th>
                     <th className="px-5 py-3.5">Order #</th>
                     <th className="px-5 py-3.5">Branch</th>
-                    <th className="px-5 py-3.5">Reason</th>
-                    <th className="px-5 py-3.5">Refund Paid</th>
-                    <th className="px-5 py-3.5">Restock</th>
                     <th className="px-5 py-3.5">Processed By</th>
+                    <th className="px-5 py-3.5">Reason</th>
+                    <th className="px-5 py-3.5">Subtotal</th>
+                    <th className="px-5 py-3.5">Refund Paid</th>
+                    <th className="px-5 py-3.5">Method</th>
+                    <th className="px-5 py-3.5">Restock</th>
                     <th className="px-5 py-3.5">Status</th>
                     <th className="px-5 py-3.5">Returned At</th>
                     <th className="px-5 py-3.5 text-right">{t.common.actions}</th>
@@ -1566,65 +1706,150 @@ export default function SalesPage() {
                 <tbody className="divide-y divide-slate-100">
                   {paginatedReturns.map((r) => (
                     <tr key={r.id} className="hover:bg-slate-50/70 transition">
+                      {/* Return ID */}
+                      <td className="px-5 py-4 font-mono text-xs text-slate-500">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyId(r.id)}
+                            className="inline-flex items-center gap-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 px-1.5 py-0.5 text-[11px] font-mono transition"
+                            title="Copy Return UUID"
+                          >
+                            {copiedId === r.id ? (
+                              <Check className="h-3 w-3 text-emerald-600" />
+                            ) : (
+                              <Copy className="h-3 w-3" />
+                            )}
+                            <span>{r.id.slice(0, 8)}...</span>
+                          </button>
+                        </div>
+                      </td>
+
+                      {/* Return # */}
                       <td className="px-5 py-4 font-mono text-xs font-semibold">
                         <button
                           type="button"
                           onClick={() => void openReturnDetail(r.id)}
-                          className="font-bold text-rose-700 hover:underline inline-flex items-center gap-1"
+                          className="inline-flex items-center gap-1 rounded-lg bg-rose-50 border border-rose-200 px-2.5 py-1 font-bold text-rose-700 hover:bg-rose-100 transition shadow-sm"
+                          title="View return slip"
                         >
-                          <Eye className="h-3.5 w-3.5" />
-                          {r.returnNumber}
+                          <Eye className="h-3.5 w-3.5 text-rose-600" />
+                          <span>{r.returnNumber}</span>
                         </button>
                       </td>
+
+                      {/* Order # */}
                       <td className="px-5 py-4 font-mono text-xs">
                         <button
                           type="button"
                           onClick={() => void openOrderDetail(r.order.id)}
-                          className="font-semibold text-emerald-700 hover:underline"
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-1 font-bold text-emerald-700 hover:bg-emerald-100 transition shadow-sm"
+                          title={`Order ID: ${r.orderId || r.order.id}`}
                         >
-                          {r.order.orderNumber}
+                          <ShoppingBag className="h-3.5 w-3.5 text-emerald-600" />
+                          <span>{r.order.orderNumber}</span>
                         </button>
                       </td>
-                      <td className="px-5 py-4 text-xs text-slate-600">{r.branch.name}</td>
-                      <td className="px-5 py-4 text-xs text-slate-600">{r.returnReason}</td>
-                      <td className="px-5 py-4 font-semibold text-rose-700 text-xs">
-                        {formatCurrency(r.refundAmount, r.order.currencyCode)} ({r.refundMethod})
+
+                      {/* Branch */}
+                      <td className="px-5 py-4 text-xs text-slate-600">
+                        <div className="font-semibold text-slate-800">{r.branch.name}</div>
+                        {r.branch.branchCode && (
+                          <div className="font-mono text-[10px] text-slate-400">
+                            {r.branch.branchCode}
+                          </div>
+                        )}
                       </td>
+
+                      {/* Processed By */}
+                      <td className="px-5 py-4 text-xs text-slate-600">
+                        <div className="font-medium text-slate-800">{r.employee.name}</div>
+                        {r.employee.employeeCode && (
+                          <div className="font-mono text-[10px] text-slate-400">
+                            {r.employee.employeeCode}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Reason */}
+                      <td className="px-5 py-4 text-xs text-slate-600 max-w-[180px] truncate" title={r.returnReason}>
+                        <span className="rounded bg-slate-50 border border-slate-200 px-2 py-0.5 text-slate-700">
+                          {r.returnReason}
+                        </span>
+                      </td>
+
+                      {/* Subtotal */}
+                      <td className="px-5 py-4 text-xs text-slate-600 font-medium">
+                        {formatCurrency(r.subtotal, r.order.currencyCode)}
+                      </td>
+
+                      {/* Refund Paid */}
+                      <td className="px-5 py-4 font-bold text-rose-700 text-xs">
+                        {formatCurrency(r.refundAmount, r.order.currencyCode)}
+                      </td>
+
+                      {/* Refund Method */}
+                      <td className="px-5 py-4">
+                        <span className="rounded-lg bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-800">
+                          {r.refundMethod}
+                        </span>
+                      </td>
+
+                      {/* Restock Status */}
                       <td className="px-5 py-4 text-xs font-semibold">
                         <span
                           className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                             r.restockStatus === 'RESTOCKED'
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              : 'bg-amber-50 text-amber-700 border border-amber-200'
+                              : r.restockStatus === 'PARTIAL'
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                : 'bg-slate-100 text-slate-600 border border-slate-200'
                           }`}
                         >
                           {r.restockStatus}
                         </span>
                       </td>
-                      <td className="px-5 py-4 text-xs text-slate-600">{r.employee.name}</td>
+
+                      {/* Status */}
                       <td className="px-5 py-4">
-                        <span className="rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-xs font-semibold text-rose-700">
+                        <span className="rounded-full bg-rose-50 border border-rose-200 px-2.5 py-0.5 text-xs font-semibold text-rose-700">
                           {r.status}
                         </span>
                       </td>
-                      <td className="px-5 py-4 text-xs text-slate-500">
+
+                      {/* Returned At */}
+                      <td className="px-5 py-4 text-xs text-slate-500 whitespace-nowrap">
                         {new Date(r.returnedAt).toLocaleString()}
                       </td>
-                      <td className="px-5 py-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => void openReturnDetail(r.id)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
-                        >
-                          <Eye className="h-3 w-3" /> View
-                        </button>
+
+                      {/* Actions */}
+                      <td className="px-5 py-4 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => void openReturnDetail(r.id)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition"
+                            title="View return slip"
+                          >
+                            <Eye className="h-3 w-3" /> View
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void openOrderDetail(r.order.id)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition"
+                            title="View parent order"
+                          >
+                            <FileText className="h-3 w-3 text-slate-500" />
+                            <span className="hidden sm:inline">Order</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
-                  {returnsList.length === 0 && (
+                  {filteredReturns.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="px-5 py-12 text-center text-sm text-slate-500">
-                        No refund or return records found.
+                      <td colSpan={13} className="px-5 py-12 text-center text-sm text-slate-500">
+                        No refund or return records found matching current filters.
                       </td>
                     </tr>
                   )}
@@ -1671,9 +1896,12 @@ export default function SalesPage() {
             <DataTablePagination
               currentPage={returnPage}
               pageSize={returnPageSize}
-              totalItems={returnsList.length}
+              totalItems={filteredReturns.length}
               onPageChange={setReturnPage}
-              onPageSizeChange={setReturnPageSize}
+              onPageSizeChange={(newSize) => {
+                setReturnPageSize(newSize);
+                setReturnPage(1);
+              }}
               itemName="returns"
             />
           )}

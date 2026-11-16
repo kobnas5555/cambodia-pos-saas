@@ -1346,6 +1346,33 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(filteredReturns.status).toBe(200);
     expect(filteredReturns.body.data).toHaveLength(1);
     expect(filteredReturns.body.data[0].returnNumber).toBe(retRes.body.data.returnNumber);
+    expect(filteredReturns.body.pagination).toBeDefined();
+    expect(filteredReturns.body.pagination.total).toBe(1);
+    expect(filteredReturns.body.pagination.page).toBe(1);
+
+    // Verify all 13 schema fields of sale_returns
+    const sr = filteredReturns.body.data[0];
+    expect(sr.id).toBe(retRes.body.data.id);
+    expect(sr.tenantId).toBeDefined();
+    expect(sr.branchId).toBe(branchId);
+    expect(sr.orderId).toBe(order.id);
+    expect(sr.returnNumber).toBe(retRes.body.data.returnNumber);
+    expect(sr.employeeId).toBeDefined();
+    expect(sr.returnReason).toBe('Defective cable');
+    expect(sr.subtotal).toBeDefined();
+    expect(sr.refundAmount).toBe('10.00');
+    expect(sr.refundMethod).toBe('ABA');
+    expect(sr.restockStatus).toBe('RESTOCKED');
+    expect(sr.status).toBe('COMPLETED');
+    expect(sr.returnedAt).toBeDefined();
+
+    // Verify order-scoped returns endpoint
+    const orderReturns = await request(app)
+      .get(`/api/v1/orders/${order.id}/returns`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(orderReturns.status).toBe(200);
+    expect(orderReturns.body.data).toHaveLength(1);
+    expect(orderReturns.body.data[0].id).toBe(retRes.body.data.id);
 
     const returnDetail = await request(app)
       .get(`/api/v1/returns/${retRes.body.data.id}`)

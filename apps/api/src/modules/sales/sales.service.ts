@@ -10,6 +10,7 @@ import {
   type CreateSaleReturnInput,
   type CurrencyCode,
   type ListPaymentsQueryInput,
+  type ListSaleReturnsQueryInput,
 } from '@cambodia-pos/shared';
 import { AppError } from '../../common/errors/AppError';
 import { getTenantDefaultExchangeRate, resolveActorEmployeeId } from '../../common/utils/actor';
@@ -535,34 +536,88 @@ export async function listPayments(
 
 export async function listSaleReturns(
   tenantId: string,
-  filters: {
+  options?: Partial<ListSaleReturnsQueryInput> & {
     branchId?: string;
+    orderId?: string;
+    employeeId?: string;
     refundMethod?: string;
+    restockStatus?: string;
+    status?: string;
     search?: string;
-  } = {},
+    startDate?: string;
+    endDate?: string;
+    page?: number | string;
+    limit?: number | string;
+  },
 ) {
-  return prisma.saleReturn.findMany({
-    where: {
-      tenantId,
-      ...(filters.branchId ? { branchId: filters.branchId } : {}),
-      ...(filters.refundMethod ? { refundMethod: filters.refundMethod } : {}),
-      ...(filters.search
-        ? {
-            OR: [
-              { returnNumber: { contains: filters.search, mode: 'insensitive' } },
-              { order: { orderNumber: { contains: filters.search, mode: 'insensitive' } } },
-            ],
-          }
-        : {}),
-    },
-    include: {
-      branch: { select: { id: true, name: true } },
-      order: { select: { id: true, orderNumber: true, currencyCode: true } },
-      employee: { select: { id: true, name: true } },
-      saleReturnItems: true,
-    },
-    orderBy: { returnedAt: 'desc' },
-    take: 100,
+  const query = options || {};
+  const page = Math.max(1, Number(query.page) || 1);
+  const take = Math.min(100, Math.max(1, Number(query.limit) || 20));
+  const skip = (page - 1) * take;
+
+  const where: any = {
+    tenantId,
+    ...(query.branchId ? { branchId: query.branchId } : {}),
+    ...(query.orderId ? { orderId: query.orderId } : {}),
+    ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+    ...(query.refundMethod ? { refundMethod: query.refundMethod } : {}),
+    ...(query.restockStatus ? { restockStatus: query.restockStatus } : {}),
+    ...(query.status ? { status: query.status } : {}),
+  };
+
+  if (query.startDate || query.endDate) {
+    where.returnedAt = {};
+    if (query.startDate) where.returnedAt.gte = new Date(query.startDate);
+    if (query.endDate) where.returnedAt.lte = new Date(query.endDate);
+  }
+
+  if (query.search?.trim()) {
+    const s = query.search.trim();
+    where.OR = [
+      { returnNumber: { contains: s, mode: 'insensitive' } },
+      { returnReason: { contains: s, mode: 'insensitive' } },
+      { order: { orderNumber: { contains: s, mode: 'insensitive' } } },
+      { order: { branch: { name: { contains: s, mode: 'insensitive' } } } },
+      { employee: { name: { contains: s, mode: 'insensitive' } } },
+    ];
+  }
+
+  const [items, total] = await Promise.all([
+    prisma.saleReturn.findMany({
+      where,
+      include: {
+        branch: { select: { id: true, name: true, branchCode: true } },
+        order: {
+          select: {
+            id: true,
+            orderNumber: true,
+            currencyCode: true,
+            totalAmount: true,
+            status: true,
+            customer: { select: { id: true, name: true, phone: true } },
+          },
+        },
+        employee: { select: { id: true, name: true, employeeCode: true } },
+        saleReturnItems: {
+          include: {
+            product: { select: { id: true, name: true, sku: true } },
+          },
+        },
+      },
+      orderBy: { returnedAt: 'desc' },
+      skip,
+      take,
+    }),
+    prisma.saleReturn.count({ where }),
+  ]);
+
+  const totalPages = Math.ceil(total / take) || 1;
+  return Object.assign(items, {
+    items,
+    total,
+    page,
+    limit: take,
+    totalPages,
   });
 }
 

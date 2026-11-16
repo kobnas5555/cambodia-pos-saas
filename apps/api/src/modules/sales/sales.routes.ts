@@ -4,6 +4,7 @@ import {
   listOrderItemsQuerySchema,
   listOrdersQuerySchema,
   listPaymentsQuerySchema,
+  listSaleReturnsQuerySchema,
 } from '@cambodia-pos/shared';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -24,6 +25,7 @@ ordersRouter.post('/', requirePermission('sales.create'), validate({ body: creat
 ordersRouter.get('/:orderId', requirePermission('sales.view'), validate({ params: idParam }), controller.getOrder);
 ordersRouter.get('/:orderId/items', requirePermission('sales.view'), validate({ params: idParam }), controller.getOrderItems);
 ordersRouter.get('/:orderId/payments', requirePermission('sales.view'), validate({ params: idParam, query: listPaymentsQuerySchema }), controller.getPayments);
+ordersRouter.get('/:orderId/returns', requirePermission('sales.view'), validate({ params: idParam, query: listSaleReturnsQuerySchema }), controller.getSaleReturns);
 
 export const paymentsRouter = Router();
 paymentsRouter.use(authenticate, requireTenantContext);
@@ -31,7 +33,7 @@ paymentsRouter.get('/', requirePermission('sales.view'), validate({ query: listP
 
 export const returnsRouter = Router();
 returnsRouter.use(authenticate, requireTenantContext);
-returnsRouter.get('/', requirePermission('sales.view'), controller.getSaleReturns);
+returnsRouter.get('/', requirePermission('sales.view'), validate({ query: listSaleReturnsQuerySchema }), controller.getSaleReturns);
 returnsRouter.post('/', requirePermission('sales.refund'), validate({ body: createSaleReturnSchema }), controller.postSaleReturn);
 returnsRouter.get('/:returnId', requirePermission('sales.view'), validate({ params: returnIdParam }), controller.getSaleReturn);
 

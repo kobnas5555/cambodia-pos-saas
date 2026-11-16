@@ -1466,19 +1466,26 @@ export function createInMemoryPrisma() {
             : {}),
         };
       },
-      findMany: async ({ where, include, select, orderBy, take }: { where?: Row; include?: Row; select?: Row; orderBy?: any; take?: number } = {}) =>
+      findMany: async ({ where, include, select, orderBy, skip, take }: { where?: Row; include?: Row; select?: Row; orderBy?: any; skip?: number; take?: number } = {}) =>
         applyOrderBy(
           store.saleReturns.filter((sr) => matchesWhere(sr, where)),
           orderBy,
         )
-          .slice(0, take ?? 200)
+          .slice(skip ?? 0, (skip ?? 0) + (take ?? 200))
           .map((sr) => ({
             ...sr,
             ...(include?.branch || select?.branch ? { branch: store.branches.find((b) => b.id === sr.branchId) } : {}),
             ...(include?.order || select?.order ? { order: store.orders.find((o) => o.id === sr.orderId) } : {}),
             ...(include?.employee || select?.employee ? { employee: store.employees.find((e) => e.id === sr.employeeId) } : {}),
             ...(include?.saleReturnItems || select?.saleReturnItems
-              ? { saleReturnItems: store.saleReturnItems.filter((sri) => sri.saleReturnId === sr.id) }
+              ? {
+                  saleReturnItems: store.saleReturnItems
+                    .filter((sri) => sri.saleReturnId === sr.id)
+                    .map((sri) => ({
+                      ...sri,
+                      product: store.products.find((p) => p.id === sri.productId) ?? null,
+                    })),
+                }
               : {}),
           })),
       create: async ({ data, include }: { data: Row; include?: Row }) => {
