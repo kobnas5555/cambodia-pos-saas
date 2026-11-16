@@ -147,6 +147,16 @@ export function createInMemoryPrisma() {
         if (!hasAccess) return false;
         continue;
       }
+      if (key === 'role' && val && typeof val === 'object') {
+        const role = store.roles.find((r) => r.id === row.roleId);
+        if (!role || !matchesWhere(role, val)) return false;
+        continue;
+      }
+      if (key === 'permission' && val && typeof val === 'object') {
+        const perm = store.permissions.find((p) => p.id === row.permissionId);
+        if (!perm || !matchesWhere(perm, val)) return false;
+        continue;
+      }
       if (key === 'supplier' && val && typeof val === 'object') {
         const supplier = store.suppliers.find((s) => s.id === row.supplierId);
         if (!supplier || !matchesWhere(supplier, val)) return false;
@@ -620,6 +630,30 @@ export function createInMemoryPrisma() {
     },
 
     rolePermission: {
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.rolePermissions.filter((rp) => matchesWhere(rp, where)).length,
+      findMany: async ({
+        where,
+        include,
+        skip,
+        take,
+      }: {
+        where?: Row;
+        include?: Row;
+        skip?: number;
+        take?: number;
+      } = {}) => {
+        let list = store.rolePermissions.filter((rp) => matchesWhere(rp, where));
+        if (typeof skip === 'number') list = list.slice(skip);
+        if (typeof take === 'number') list = list.slice(0, take);
+        return list.map((rp) => {
+          const out: Row = { ...rp };
+          if (include?.role) out.role = store.roles.find((r) => r.id === rp.roleId) ?? null;
+          if (include?.permission)
+            out.permission = store.permissions.find((p) => p.id === rp.permissionId) ?? null;
+          return out;
+        });
+      },
       createMany: async ({ data }: { data: Row[] }) => {
         for (const item of data) store.rolePermissions.push({ id: uuid(), ...item });
         return { count: data.length };

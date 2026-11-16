@@ -19,6 +19,7 @@ const idParam = (key: string) => z.object({ [key]: z.string().uuid() });
 router.use(authenticate, requireTenantContext);
 
 router.get('/permissions', requirePermission('roles.view'), controller.getPermissions);
+router.get('/role-permissions', requirePermission('roles.view'), controller.getRolePermissions);
 router.get('/roles', requirePermission('roles.view'), controller.getRoles);
 router.post('/roles', requirePermission('roles.manage'), validate({ body: createRoleSchema }), controller.postRole);
 router.patch(

@@ -107,6 +107,7 @@ export default function AccessPage() {
   // Filters for Permissions tab
   const [permSearch, setPermSearch] = useState('');
   const [permModuleFilter, setPermModuleFilter] = useState<string>('ALL');
+  const [permRoleFilter, setPermRoleFilter] = useState<string>('ALL');
   const [permPage, setPermPage] = useState<number>(1);
   const [permPageSize, setPermPageSize] = useState<number>(10);
 
@@ -234,6 +235,10 @@ export default function AccessPage() {
   const filteredPermissions = useMemo(() => {
     return permissions.filter((p) => {
       if (permModuleFilter !== 'ALL' && p.module !== permModuleFilter) return false;
+      if (permRoleFilter !== 'ALL') {
+        const targetRole = roles.find((r) => r.id === permRoleFilter);
+        if (!targetRole || !targetRole.permissions.includes(p.code)) return false;
+      }
       if (permSearch.trim()) {
         const q = permSearch.trim().toLowerCase();
         const matches =
@@ -244,11 +249,11 @@ export default function AccessPage() {
       }
       return true;
     });
-  }, [permissions, permModuleFilter, permSearch]);
+  }, [permissions, permModuleFilter, permRoleFilter, permSearch, roles]);
 
   useEffect(() => {
     setPermPage(1);
-  }, [permSearch, permModuleFilter]);
+  }, [permSearch, permModuleFilter, permRoleFilter]);
 
   const paginatedPermissions = useMemo(() => {
     const start = (permPage - 1) * permPageSize;
@@ -1185,12 +1190,28 @@ export default function AccessPage() {
                 </select>
               </div>
 
-              {(permSearch || permModuleFilter !== 'ALL') && (
+              <div>
+                <select
+                  value={permRoleFilter}
+                  onChange={(e) => setPermRoleFilter(e.target.value)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+                >
+                  <option value="ALL">All Roles ({roles.length})</option>
+                  {roles.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      Role: {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {(permSearch || permModuleFilter !== 'ALL' || permRoleFilter !== 'ALL') && (
                 <button
                   type="button"
                   onClick={() => {
                     setPermSearch('');
                     setPermModuleFilter('ALL');
+                    setPermRoleFilter('ALL');
                   }}
                   className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                 >

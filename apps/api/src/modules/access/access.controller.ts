@@ -7,6 +7,20 @@ export const getPermissions = asyncHandler(async (req: Request, res: Response) =
   res.json({ success: true, data });
 });
 
+export const getRolePermissions = asyncHandler(async (req: Request, res: Response) => {
+  const result = await accessService.listRolePermissions(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data: result.items,
+    pagination: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+    },
+  });
+});
+
 export const getRoles = asyncHandler(async (req: Request, res: Response) => {
   const data = await accessService.listRoles(req.tenant!.tenantId, req.query as any);
   res.json({ success: true, data });
