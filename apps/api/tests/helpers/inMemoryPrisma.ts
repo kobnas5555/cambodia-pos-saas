@@ -82,7 +82,7 @@ export function createInMemoryPrisma() {
       return val instanceof Date ? val.getTime() === cond.getTime() : val === cond;
     }
     if (cond !== null && typeof cond === 'object') {
-      const ops = ['in', 'notIn', 'gt', 'gte', 'lt', 'lte', 'contains', 'equals', 'not'];
+      const ops = ['in', 'notIn', 'gt', 'gte', 'lt', 'lte', 'contains', 'startsWith', 'endsWith', 'equals', 'not'];
       if (ops.some((k) => k in cond)) {
         if ('in' in cond && Array.isArray(cond.in) && !cond.in.includes(val)) return false;
         if ('notIn' in cond && Array.isArray(cond.notIn) && cond.notIn.includes(val)) return false;
@@ -90,6 +90,22 @@ export function createInMemoryPrisma() {
         if ('gte' in cond && cond.gte !== undefined && !(val >= cond.gte)) return false;
         if ('lt' in cond && cond.lt !== undefined && !(val < cond.lt)) return false;
         if ('lte' in cond && cond.lte !== undefined && !(val <= cond.lte)) return false;
+        if ('startsWith' in cond && cond.startsWith !== undefined) {
+          if (typeof val !== 'string') return false;
+          const ok =
+            cond.mode === 'insensitive'
+              ? val.toLowerCase().startsWith(String(cond.startsWith).toLowerCase())
+              : val.startsWith(String(cond.startsWith));
+          if (!ok) return false;
+        }
+        if ('endsWith' in cond && cond.endsWith !== undefined) {
+          if (typeof val !== 'string') return false;
+          const ok =
+            cond.mode === 'insensitive'
+              ? val.toLowerCase().endsWith(String(cond.endsWith).toLowerCase())
+              : val.endsWith(String(cond.endsWith));
+          if (!ok) return false;
+        }
         if ('contains' in cond && cond.contains !== undefined) {
           if (typeof val !== 'string') return false;
           const ok =

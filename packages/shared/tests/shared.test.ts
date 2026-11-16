@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   ALL_PERMISSION_CODES,
+  ALL_PERMISSION_ACTIONS,
+  PERMISSION_DEFINITIONS,
+  getPermissionAction,
+  getPermissionModule,
+  parsePermissionCode,
   PAYMENT_METHODS,
   addDecimals,
   closeShiftSchema,
@@ -56,9 +61,30 @@ describe('@cambodia-pos/shared', () => {
     expect(km.nav.dashboard).toBe('ផ្ទាំងគ្រប់គ្រង');
     expect(km.pos.title).toContain('POS');
     expect(PAYMENT_METHODS).toEqual(['CASH', 'ABA', 'ACLEDA', 'OTHER']);
+    expect(ALL_PERMISSION_CODES).toContain('products.view');
     expect(ALL_PERMISSION_CODES).toContain('products.create');
+    expect(ALL_PERMISSION_CODES).toContain('products.update');
+    expect(ALL_PERMISSION_CODES).toContain('sales.create');
     expect(ALL_PERMISSION_CODES).toContain('sales.refund');
+    expect(ALL_PERMISSION_CODES).toContain('inventory.adjust');
+    expect(ALL_PERMISSION_CODES).toContain('reports.view');
     expect(ALL_PERMISSION_CODES).toContain('finance.manage');
+
+    // Ensure all permission codes follow action-based format: <module>.<action>
+    for (const def of PERMISSION_DEFINITIONS) {
+      expect(def.code).toMatch(/^[a-z_]+\.[a-z_]+$/);
+      const parsed = parsePermissionCode(def.code);
+      expect(parsed.module).toBe(def.code.split('.')[0]);
+      expect(parsed.action).toBe(def.code.split('.')[1]);
+      expect(getPermissionModule(def.code)).toBe(parsed.module);
+      expect(getPermissionAction(def.code)).toBe(parsed.action);
+    }
+
+    expect(ALL_PERMISSION_ACTIONS).toContain('view');
+    expect(ALL_PERMISSION_ACTIONS).toContain('create');
+    expect(ALL_PERMISSION_ACTIONS).toContain('update');
+    expect(ALL_PERMISSION_ACTIONS).toContain('refund');
+    expect(ALL_PERMISSION_ACTIONS).toContain('adjust');
   });
 
   it('validates business registration and normalizes branch codes and slugs', () => {

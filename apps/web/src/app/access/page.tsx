@@ -60,6 +60,7 @@ interface PermissionRow {
   id: string;
   code: string;
   module: string;
+  action?: string;
   description: string | null;
 }
 
@@ -72,6 +73,32 @@ interface InvitationRow {
 }
 
 type AccessTab = 'employees' | 'roles' | 'permissions' | 'branchAccess' | 'invitations';
+
+function getActionBadgeStyle(action: string) {
+  switch (action.toLowerCase()) {
+    case 'view':
+      return 'bg-sky-50 text-sky-700 border-sky-200';
+    case 'create':
+      return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    case 'update':
+      return 'bg-amber-50 text-amber-700 border-amber-200';
+    case 'delete':
+    case 'archive':
+    case 'deactivate':
+      return 'bg-rose-50 text-rose-700 border-rose-200';
+    case 'refund':
+      return 'bg-purple-50 text-purple-700 border-purple-200';
+    case 'adjust':
+      return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+    case 'discount':
+    case 'pay':
+      return 'bg-teal-50 text-teal-700 border-teal-200';
+    case 'manage':
+      return 'bg-slate-100 text-slate-700 border-slate-300';
+    default:
+      return 'bg-slate-50 text-slate-600 border-slate-200';
+  }
+}
 
 export default function AccessPage() {
   const { activeTenant, hasPermission } = useAuth();
@@ -107,6 +134,7 @@ export default function AccessPage() {
   // Filters for Permissions tab
   const [permSearch, setPermSearch] = useState('');
   const [permModuleFilter, setPermModuleFilter] = useState<string>('ALL');
+  const [permActionFilter, setPermActionFilter] = useState<string>('ALL');
   const [permRoleFilter, setPermRoleFilter] = useState<string>('ALL');
   const [permPage, setPermPage] = useState<number>(1);
   const [permPageSize, setPermPageSize] = useState<number>(10);
@@ -234,7 +262,9 @@ export default function AccessPage() {
   // Derived filtered permissions
   const filteredPermissions = useMemo(() => {
     return permissions.filter((p) => {
+      const act = p.action || (p.code.includes('.') ? p.code.split('.')[1] : 'access');
       if (permModuleFilter !== 'ALL' && p.module !== permModuleFilter) return false;
+      if (permActionFilter !== 'ALL' && act.toLowerCase() !== permActionFilter.toLowerCase()) return false;
       if (permRoleFilter !== 'ALL') {
         const targetRole = roles.find((r) => r.id === permRoleFilter);
         if (!targetRole || !targetRole.permissions.includes(p.code)) return false;
@@ -244,16 +274,17 @@ export default function AccessPage() {
         const matches =
           p.code.toLowerCase().includes(q) ||
           p.module.toLowerCase().includes(q) ||
+          act.toLowerCase().includes(q) ||
           (p.description && p.description.toLowerCase().includes(q));
         if (!matches) return false;
       }
       return true;
     });
-  }, [permissions, permModuleFilter, permRoleFilter, permSearch, roles]);
+  }, [permissions, permModuleFilter, permActionFilter, permRoleFilter, permSearch, roles]);
 
   useEffect(() => {
     setPermPage(1);
-  }, [permSearch, permModuleFilter, permRoleFilter]);
+  }, [permSearch, permModuleFilter, permActionFilter, permRoleFilter]);
 
   const paginatedPermissions = useMemo(() => {
     const start = (permPage - 1) * permPageSize;
@@ -265,6 +296,16 @@ export default function AccessPage() {
     const set = new Set<string>();
     for (const p of permissions) {
       if (p.module) set.add(p.module);
+    }
+    return Array.from(set).sort();
+  }, [permissions]);
+
+  // Permission actions list
+  const permissionActions = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of permissions) {
+      const act = p.action || (p.code.includes('.') ? p.code.split('.')[1] : 'access');
+      set.add(act);
     }
     return Array.from(set).sort();
   }, [permissions]);
@@ -1164,60 +1205,100 @@ export default function AccessPage() {
         {tab === 'permissions' && (
           <div className="space-y-4">
             {/* Filter Bar */}
-            <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="relative min-w-[240px] flex-1">
-                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                <input
-                  value={permSearch}
-                  onChange={(e) => setPermSearch(e.target.value)}
-                  placeholder="Search by code (e.g. sales.create, inventory.transfer) or description..."
-                  className="w-full rounded-lg border border-slate-300 py-1.5 pl-9 pr-3 text-sm"
-                />
+            <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="relative min-w-[240px] flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    value={permSearch}
+                    onChange={(e) => setPermSearch(e.target.value)}
+                    placeholder="Search by code (e.g. products.view, sales.refund, inventory.adjust)..."
+                    className="w-full rounded-lg border border-slate-300 py-1.5 pl-9 pr-3 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <select
+                    value={permModuleFilter}
+                    onChange={(e) => setPermModuleFilter(e.target.value)}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium"
+                  >
+                    <option value="ALL">All Modules ({permissionModules.length})</option>
+                    {permissionModules.map((m) => (
+                      <option key={m} value={m}>
+                        {m.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <select
+                    value={permActionFilter}
+                    onChange={(e) => setPermActionFilter(e.target.value)}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium"
+                  >
+                    <option value="ALL">All Actions ({permissionActions.length})</option>
+                    {permissionActions.map((act) => (
+                      <option key={act} value={act}>
+                        Action: {act.toUpperCase()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <select
+                    value={permRoleFilter}
+                    onChange={(e) => setPermRoleFilter(e.target.value)}
+                    className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium"
+                  >
+                    <option value="ALL">All Roles ({roles.length})</option>
+                    {roles.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        Role: {r.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {(permSearch || permModuleFilter !== 'ALL' || permActionFilter !== 'ALL' || permRoleFilter !== 'ALL') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPermSearch('');
+                      setPermModuleFilter('ALL');
+                      setPermActionFilter('ALL');
+                      setPermRoleFilter('ALL');
+                    }}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Reset
+                  </button>
+                )}
               </div>
 
-              <div>
-                <select
-                  value={permModuleFilter}
-                  onChange={(e) => setPermModuleFilter(e.target.value)}
-                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-                >
-                  <option value="ALL">All Modules ({permissionModules.length})</option>
-                  {permissionModules.map((m) => (
-                    <option key={m} value={m}>
-                      {m.toUpperCase()}
-                    </option>
-                  ))}
-                </select>
+              {/* Action Quick Chips */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100">
+                <span className="text-xs font-semibold text-slate-400 mr-1">Action Filter:</span>
+                {['ALL', 'view', 'create', 'update', 'refund', 'adjust', 'manage', 'delete'].map((actionKey) => {
+                  const isSelected = permActionFilter.toLowerCase() === actionKey.toLowerCase();
+                  return (
+                    <button
+                      key={actionKey}
+                      type="button"
+                      onClick={() => setPermActionFilter(actionKey)}
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold transition-all ${
+                        isSelected
+                          ? 'bg-slate-900 text-white shadow-sm'
+                          : 'bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {actionKey === 'ALL' ? 'All Actions' : actionKey.toUpperCase()}
+                    </button>
+                  );
+                })}
               </div>
-
-              <div>
-                <select
-                  value={permRoleFilter}
-                  onChange={(e) => setPermRoleFilter(e.target.value)}
-                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
-                >
-                  <option value="ALL">All Roles ({roles.length})</option>
-                  {roles.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      Role: {r.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {(permSearch || permModuleFilter !== 'ALL' || permRoleFilter !== 'ALL') && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPermSearch('');
-                    setPermModuleFilter('ALL');
-                    setPermRoleFilter('ALL');
-                  }}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                >
-                  Reset
-                </button>
-              )}
             </div>
 
             {/* Permissions Table */}
@@ -1227,6 +1308,7 @@ export default function AccessPage() {
                   <tr>
                     <th className="px-4 py-3">Permission Code</th>
                     <th className="px-4 py-3">Module</th>
+                    <th className="px-4 py-3">Action</th>
                     <th className="px-4 py-3">Description</th>
                     <th className="px-4 py-3">Assigned Roles</th>
                   </tr>
@@ -1234,13 +1316,14 @@ export default function AccessPage() {
                 <tbody className="divide-y divide-slate-100">
                   {paginatedPermissions.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                         No permissions found matching criteria.
                       </td>
                     </tr>
                   ) : (
                     paginatedPermissions.map((perm) => {
                       const rolesWithPerm = roles.filter((r) => r.permissions.includes(perm.code));
+                      const act = perm.action || (perm.code.includes('.') ? perm.code.split('.')[1] : 'access');
                       return (
                         <tr key={perm.id} className="hover:bg-slate-50/60 transition-colors">
                           <td className="px-4 py-3 font-mono text-xs font-bold text-slate-900">
@@ -1252,8 +1335,13 @@ export default function AccessPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3">
-                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 uppercase">
+                            <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-semibold text-blue-700 uppercase">
                               {perm.module}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider ${getActionBadgeStyle(act)}`}>
+                              {act}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-xs text-slate-600">
@@ -1885,7 +1973,7 @@ export default function AccessPage() {
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs font-semibold uppercase text-slate-500">
-                      Permission Assignments ({selectedPerms.length} selected)
+                      Action-Based Permissions ({selectedPerms.length} selected)
                     </p>
                     <div className="flex gap-2">
                       <button
@@ -1894,6 +1982,22 @@ export default function AccessPage() {
                         className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700"
                       >
                         Select All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedPerms(
+                            permissions
+                              .filter((p) => {
+                                const act = p.action || (p.code.includes('.') ? p.code.split('.')[1] : '');
+                                return act === 'view';
+                              })
+                              .map((p) => p.code),
+                          )
+                        }
+                        className="text-[11px] font-semibold text-sky-600 hover:text-sky-700"
+                      >
+                        View Only
                       </button>
                       <button
                         type="button"
@@ -1906,29 +2010,41 @@ export default function AccessPage() {
                   </div>
 
                   <div className="grid max-h-72 gap-2 overflow-y-auto rounded-xl border border-slate-200 p-3 sm:grid-cols-2">
-                    {permissions.map((perm) => (
-                      <label
-                        key={perm.id}
-                        className="flex items-start gap-2 text-xs rounded p-1.5 hover:bg-slate-50 cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedPerms.includes(perm.code)}
-                          onChange={(e) =>
-                            setSelectedPerms((prev) =>
-                              e.target.checked
-                                ? [...prev, perm.code]
-                                : prev.filter((c) => c !== perm.code),
-                            )
-                          }
-                          className="mt-0.5 h-3.5 w-3.5 rounded text-emerald-600"
-                        />
-                        <div>
-                          <strong className="font-mono text-slate-900">{perm.code}</strong>
-                          <span className="block text-[11px] text-slate-500">{perm.description}</span>
-                        </div>
-                      </label>
-                    ))}
+                    {permissions.map((perm) => {
+                      const act = perm.action || (perm.code.includes('.') ? perm.code.split('.')[1] : 'access');
+                      return (
+                        <label
+                          key={perm.id}
+                          className="flex items-start gap-2 text-xs rounded p-2 hover:bg-slate-50 cursor-pointer border border-transparent hover:border-slate-200 transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedPerms.includes(perm.code)}
+                            onChange={(e) =>
+                              setSelectedPerms((prev) =>
+                                e.target.checked
+                                  ? [...prev, perm.code]
+                                  : prev.filter((c) => c !== perm.code),
+                              )
+                            }
+                            className="mt-0.5 h-3.5 w-3.5 rounded text-emerald-600"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <strong className="font-mono text-slate-900">{perm.code}</strong>
+                              <span
+                                className={`rounded border px-1.5 py-0.2 text-[9px] font-bold uppercase tracking-wider ${getActionBadgeStyle(
+                                  act,
+                                )}`}
+                              >
+                                {act}
+                              </span>
+                            </div>
+                            <span className="block text-[11px] text-slate-500 mt-0.5">{perm.description}</span>
+                          </div>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
 
