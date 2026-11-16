@@ -8,7 +8,7 @@ export const getPermissions = asyncHandler(async (_req: Request, res: Response) 
 });
 
 export const getRoles = asyncHandler(async (req: Request, res: Response) => {
-  const data = await accessService.listRoles(req.tenant!.tenantId);
+  const data = await accessService.listRoles(req.tenant!.tenantId, req.query as any);
   res.json({ success: true, data });
 });
 

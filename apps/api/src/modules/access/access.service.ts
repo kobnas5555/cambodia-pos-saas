@@ -22,9 +22,29 @@ export async function listPermissions() {
   });
 }
 
-export async function listRoles(tenantId: string) {
+export async function listRoles(
+  tenantId: string,
+  options?: {
+    search?: string;
+    type?: 'ALL' | 'SYSTEM' | 'CUSTOM';
+  } | string,
+) {
+  const opts = typeof options === 'string' ? { search: options } : (options ?? {});
+  const { search, type } = opts;
+
   const roles = await prisma.role.findMany({
-    where: { tenantId },
+    where: {
+      tenantId,
+      ...(type === 'SYSTEM' ? { isSystem: true } : type === 'CUSTOM' ? { isSystem: false } : {}),
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { description: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    },
     include: {
       rolePermissions: {
         include: { permission: true },
@@ -36,12 +56,14 @@ export async function listRoles(tenantId: string) {
 
   return roles.map((r) => ({
     id: r.id,
+    tenantId: r.tenantId,
     name: r.name,
     description: r.description,
     isSystem: r.isSystem,
     memberCount: r._count.userRoles,
     permissions: r.rolePermissions.map((rp) => rp.permission.code),
     createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
   }));
 }
 
