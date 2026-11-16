@@ -4,6 +4,7 @@ import {
   listOrderItemsQuerySchema,
   listOrdersQuerySchema,
   listPaymentsQuerySchema,
+  listSaleReturnItemsQuerySchema,
   listSaleReturnsQuerySchema,
 } from '@cambodia-pos/shared';
 import { Router } from 'express';
@@ -33,7 +34,9 @@ paymentsRouter.get('/', requirePermission('sales.view'), validate({ query: listP
 
 export const returnsRouter = Router();
 returnsRouter.use(authenticate, requireTenantContext);
+returnsRouter.get('/items', requirePermission('sales.view'), validate({ query: listSaleReturnItemsQuerySchema }), controller.getSaleReturnItems);
 returnsRouter.get('/', requirePermission('sales.view'), validate({ query: listSaleReturnsQuerySchema }), controller.getSaleReturns);
 returnsRouter.post('/', requirePermission('sales.refund'), validate({ body: createSaleReturnSchema }), controller.postSaleReturn);
 returnsRouter.get('/:returnId', requirePermission('sales.view'), validate({ params: returnIdParam }), controller.getSaleReturn);
+returnsRouter.get('/:returnId/items', requirePermission('sales.view'), validate({ params: returnIdParam, query: listSaleReturnItemsQuerySchema }), controller.getSaleReturnItems);
 

@@ -354,6 +354,21 @@ export const listSaleReturnsQuerySchema = z.object({
 
 export type ListSaleReturnsQueryInput = z.infer<typeof listSaleReturnsQuerySchema>;
 
+export const listSaleReturnItemsQuerySchema = z.object({
+  search: z.string().optional(),
+  saleReturnId: z.string().uuid().optional(),
+  orderItemId: z.string().uuid().optional(),
+  productId: z.string().uuid().optional(),
+  branchId: z.string().uuid().optional(),
+  orderId: z.string().uuid().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListSaleReturnItemsQueryInput = z.infer<typeof listSaleReturnItemsQuerySchema>;
+
 // ============================================================================
 // Phase 9: Shifts, Expense Types, Expenses & Incomes
 // ============================================================================

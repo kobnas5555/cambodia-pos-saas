@@ -1389,6 +1389,34 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(orderDetail.status).toBe(200);
     expect(orderDetail.body.data.saleReturns).toHaveLength(1);
     expect(orderDetail.body.data.saleReturns[0].refundMethod).toBe('ABA');
+
+    // 5. Verify sale_return_items listing, pagination, and all 8 schema fields
+    const returnItemsRes = await request(app)
+      .get(`/api/v1/returns/items?saleReturnId=${retRes.body.data.id}&page=1&limit=10`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(returnItemsRes.status).toBe(200);
+    expect(returnItemsRes.body.data).toHaveLength(1);
+    expect(returnItemsRes.body.pagination).toBeDefined();
+    expect(returnItemsRes.body.pagination.total).toBe(1);
+    expect(returnItemsRes.body.pagination.page).toBe(1);
+
+    const sri = returnItemsRes.body.data[0];
+    expect(sri.id).toBeDefined();
+    expect(sri.saleReturnId).toBe(retRes.body.data.id);
+    expect(sri.orderItemId).toBe(order.orderItems[0].id);
+    expect(sri.productId).toBeDefined();
+    expect(Number(sri.quantity)).toBe(1);
+    expect(sri.unitPrice).toBeDefined();
+    expect(sri.refundAmount).toBe('10.00');
+    expect(Number(sri.restockQuantity)).toBe(1);
+
+    // Verify sub-resource route: GET /api/v1/returns/:returnId/items
+    const returnSubItemsRes = await request(app)
+      .get(`/api/v1/returns/${retRes.body.data.id}/items`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(returnSubItemsRes.status).toBe(200);
+    expect(returnSubItemsRes.body.data).toHaveLength(1);
+    expect(returnSubItemsRes.body.data[0].id).toBe(sri.id);
   });
 
   it('FR-07: handles selecting original sale, partial/full returns, proportional refundable amounts with discounts, restock decisions, and inventory updates', async () => {

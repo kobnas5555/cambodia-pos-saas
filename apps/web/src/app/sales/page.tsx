@@ -216,6 +216,58 @@ interface ReturnDetail {
   }>;
 }
 
+interface SaleReturnItemRow {
+  id: string;
+  saleReturnId: string;
+  orderItemId: string;
+  productId: string;
+  quantity: string;
+  unitPrice: string;
+  refundAmount: string;
+  restockQuantity: string;
+  product?: {
+    id: string;
+    name: string;
+    sku: string;
+    barcode?: string | null;
+    trackInventory: boolean;
+  };
+  orderItem?: {
+    id: string;
+    productNameSnapshot: string;
+    skuSnapshot: string;
+    quantity: string;
+    unitPrice: string;
+    lineTotal: string;
+  };
+  saleReturn?: {
+    id: string;
+    returnNumber: string;
+    returnReason: string;
+    refundMethod: string;
+    restockStatus: string;
+    status: string;
+    returnedAt: string;
+    orderId: string;
+    order: {
+      id: string;
+      orderNumber: string;
+      currencyCode: CurrencyCode;
+      status: string;
+    };
+    branch: {
+      id: string;
+      name: string;
+      branchCode?: string;
+    };
+    employee: {
+      id: string;
+      name: string;
+      employeeCode?: string;
+    };
+  };
+}
+
 const EXCHANGE_RATE = 4100;
 
 export default function SalesPage() {
@@ -223,7 +275,7 @@ export default function SalesPage() {
   const { t } = useI18n();
   const canRefund = hasPermission('sales.refund');
 
-  const [tab, setTab] = useState<'orders' | 'items' | 'payments' | 'returns'>('orders');
+  const [tab, setTab] = useState<'orders' | 'items' | 'payments' | 'returns' | 'return-items'>('orders');
   const [search, setSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -248,11 +300,14 @@ export default function SalesPage() {
   const [paymentPageSize, setPaymentPageSize] = useState(10);
   const [returnPage, setReturnPage] = useState(1);
   const [returnPageSize, setReturnPageSize] = useState(10);
+  const [returnItemPage, setReturnItemPage] = useState(1);
+  const [returnItemPageSize, setReturnItemPageSize] = useState(10);
 
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [orderItems, setOrderItems] = useState<OrderItemRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [returnsList, setReturnsList] = useState<ReturnRow[]>([]);
+  const [returnItemsList, setReturnItemsList] = useState<SaleReturnItemRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<OrderDetail | null>(null);
   const [selectedReturn, setSelectedReturn] = useState<ReturnDetail | null>(null);
@@ -310,16 +365,23 @@ export default function SalesPage() {
       if (returnStartDate) returnQs.set('startDate', returnStartDate);
       if (returnEndDate) returnQs.set('endDate', returnEndDate);
 
-      const [ords, items, pays, rets] = await Promise.all([
+      const returnItemQs = new URLSearchParams();
+      if (activeBranch) returnItemQs.set('branchId', activeBranch.id);
+      else if (branchFilter !== 'ALL') returnItemQs.set('branchId', branchFilter);
+      if (search.trim()) returnItemQs.set('search', search.trim());
+
+      const [ords, items, pays, rets, retItems] = await Promise.all([
         apiRequest<OrderSummary[]>(`/orders?${orderQs.toString()}`),
         apiRequest<OrderItemRow[]>(`/orders/items?${itemQs.toString()}`),
         apiRequest<PaymentRow[]>(`/payments?${paymentQs.toString()}`),
         apiRequest<ReturnRow[]>(`/returns?${returnQs.toString()}`),
+        apiRequest<SaleReturnItemRow[]>(`/returns/items?${returnItemQs.toString()}`),
       ]);
       setOrders(ords);
       setOrderItems(items);
       setPayments(pays);
       setReturnsList(rets);
+      setReturnItemsList(retItems);
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Unable to load sales data');
     } finally {
@@ -354,6 +416,7 @@ export default function SalesPage() {
     setItemPage(1);
     setPaymentPage(1);
     setReturnPage(1);
+    setReturnItemPage(1);
   }, [search, branchFilter, statusFilter, orderCurrencyFilter, tab]);
 
   const handleCopyId = (id: string) => {
@@ -724,6 +787,45 @@ export default function SalesPage() {
     branchFilter,
   ]);
 
+  const filteredReturnItems = useMemo(() => {
+    return returnItemsList.filter((ri) => {
+      if (branchFilter !== 'ALL' && ri.saleReturn?.branch?.id && ri.saleReturn.branch.id !== branchFilter) return false;
+      if (search.trim()) {
+        const q = search.toLowerCase();
+        const matchesId = ri.id.toLowerCase().includes(q);
+        const matchesReturn = ri.saleReturn?.returnNumber ? ri.saleReturn.returnNumber.toLowerCase().includes(q) : false;
+        const matchesOrder = ri.saleReturn?.order?.orderNumber ? ri.saleReturn.order.orderNumber.toLowerCase().includes(q) : false;
+        const matchesProd = ri.product?.name ? ri.product.name.toLowerCase().includes(q) : false;
+        const matchesSku = ri.product?.sku ? ri.product.sku.toLowerCase().includes(q) : false;
+        const matchesSnap = ri.orderItem?.productNameSnapshot ? ri.orderItem.productNameSnapshot.toLowerCase().includes(q) : false;
+        const matchesSnapSku = ri.orderItem?.skuSnapshot ? ri.orderItem.skuSnapshot.toLowerCase().includes(q) : false;
+        const matchesReason = ri.saleReturn?.returnReason ? ri.saleReturn.returnReason.toLowerCase().includes(q) : false;
+        if (
+          !matchesId &&
+          !matchesReturn &&
+          !matchesOrder &&
+          !matchesProd &&
+          !matchesSku &&
+          !matchesSnap &&
+          !matchesSnapSku &&
+          !matchesReason
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [returnItemsList, branchFilter, search]);
+
+  const paginatedReturnItems = useMemo(() => {
+    const start = (returnItemPage - 1) * returnItemPageSize;
+    return filteredReturnItems.slice(start, start + returnItemPageSize);
+  }, [filteredReturnItems, returnItemPage, returnItemPageSize]);
+
+  useEffect(() => {
+    setReturnItemPage(1);
+  }, [search, branchFilter]);
+
   return (
     <AppShell>
       <div className="mx-auto max-w-7xl space-y-6">
@@ -876,7 +978,7 @@ export default function SalesPage() {
         <div className="space-y-3 print:hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1">
-              {(['orders', 'items', 'payments', 'returns'] as const).map((k) => (
+              {(['orders', 'items', 'payments', 'returns', 'return-items'] as const).map((k) => (
                 <button
                   key={k}
                   type="button"
@@ -893,7 +995,9 @@ export default function SalesPage() {
                       ? `Order Items (${filteredOrderItems.length})`
                       : k === 'payments'
                         ? `Payments (${payments.length})`
-                        : `Returns (${returnsList.length})`}
+                        : k === 'returns'
+                          ? `Returns (${filteredReturns.length})`
+                          : `Return Items (${filteredReturnItems.length})`}
                 </button>
               ))}
             </div>
@@ -1120,7 +1224,9 @@ export default function SalesPage() {
                         ? 'Product name, SKU, or order #...'
                         : tab === 'payments'
                           ? 'Order # or reference #...'
-                          : 'Return # or order #...'
+                          : tab === 'returns'
+                            ? 'Return # or order #...'
+                            : 'Return item SKU, product or return #...'
                   }
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-7 text-xs focus:border-emerald-500 focus:bg-white focus:outline-none transition"
                 />
@@ -1684,7 +1790,7 @@ export default function SalesPage() {
                   )}
                 </tbody>
               </table>
-            ) : (
+            ) : tab === 'returns' ? (
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50/75 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
@@ -1855,6 +1961,178 @@ export default function SalesPage() {
                   )}
                 </tbody>
               </table>
+            ) : (
+              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                <thead className="bg-slate-50/75 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3.5">Item ID</th>
+                    <th className="px-5 py-3.5">Return #</th>
+                    <th className="px-5 py-3.5">Order #</th>
+                    <th className="px-5 py-3.5">Product Snapshot</th>
+                    <th className="px-5 py-3.5">Catalog SKU</th>
+                    <th className="px-5 py-3.5">Qty Returned</th>
+                    <th className="px-5 py-3.5">Unit Price</th>
+                    <th className="px-5 py-3.5">Refund Paid</th>
+                    <th className="px-5 py-3.5">Restocked</th>
+                    <th className="px-5 py-3.5">Branch</th>
+                    <th className="px-5 py-3.5">Returned At</th>
+                    <th className="px-5 py-3.5 text-right">{t.common.actions}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {paginatedReturnItems.map((ri) => {
+                    const currency = ri.saleReturn?.order?.currencyCode ?? 'USD';
+                    return (
+                      <tr key={ri.id} className="hover:bg-slate-50/70 transition">
+                        {/* Item ID */}
+                        <td className="px-5 py-4 font-mono text-xs text-slate-500">
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyId(ri.id)}
+                              className="inline-flex items-center gap-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 px-1.5 py-0.5 text-[11px] font-mono transition"
+                              title="Copy Return Item UUID"
+                            >
+                              {copiedId === ri.id ? (
+                                <Check className="h-3 w-3 text-emerald-600" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
+                              <span>{ri.id.slice(0, 8)}...</span>
+                            </button>
+                          </div>
+                        </td>
+
+                        {/* Return # */}
+                        <td className="px-5 py-4 font-mono text-xs font-semibold">
+                          <button
+                            type="button"
+                            onClick={() => void openReturnDetail(ri.saleReturnId)}
+                            className="inline-flex items-center gap-1 rounded-lg bg-rose-50 border border-rose-200 px-2.5 py-1 font-bold text-rose-700 hover:bg-rose-100 transition shadow-sm"
+                            title="View parent return"
+                          >
+                            <Eye className="h-3.5 w-3.5 text-rose-600" />
+                            <span>{ri.saleReturn?.returnNumber ?? ri.saleReturnId.slice(0, 8)}</span>
+                          </button>
+                        </td>
+
+                        {/* Order # */}
+                        <td className="px-5 py-4 font-mono text-xs">
+                          {ri.saleReturn?.order ? (
+                            <button
+                              type="button"
+                              onClick={() => void openOrderDetail(ri.saleReturn!.orderId)}
+                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-1 font-bold text-emerald-700 hover:bg-emerald-100 transition shadow-sm"
+                              title="View parent order"
+                            >
+                              <ShoppingBag className="h-3.5 w-3.5 text-emerald-600" />
+                              <span>{ri.saleReturn.order.orderNumber}</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+
+                        {/* Product Snapshot */}
+                        <td className="px-5 py-4 text-xs">
+                          <div className="font-semibold text-slate-900">
+                            {ri.orderItem?.productNameSnapshot ?? ri.product?.name ?? 'Returned Item'}
+                          </div>
+                          <div className="font-mono text-[10px] text-slate-400">
+                            Snapshot SKU: {ri.orderItem?.skuSnapshot ?? '—'}
+                          </div>
+                        </td>
+
+                        {/* Catalog SKU */}
+                        <td className="px-5 py-4 text-xs font-mono text-slate-600">
+                          <span className="rounded bg-slate-100 border border-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-700">
+                            {ri.product?.sku ?? '—'}
+                          </span>
+                        </td>
+
+                        {/* Qty Returned */}
+                        <td className="px-5 py-4 text-xs font-bold text-slate-800">
+                          {Number(ri.quantity).toLocaleString()}
+                        </td>
+
+                        {/* Unit Price */}
+                        <td className="px-5 py-4 text-xs text-slate-600 font-medium">
+                          {formatCurrency(ri.unitPrice, currency)}
+                        </td>
+
+                        {/* Refund Paid */}
+                        <td className="px-5 py-4 font-bold text-rose-700 text-xs">
+                          {formatCurrency(ri.refundAmount, currency)}
+                        </td>
+
+                        {/* Restocked */}
+                        <td className="px-5 py-4 text-xs font-semibold">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              Number(ri.restockQuantity) > 0
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-slate-100 text-slate-600 border border-slate-200'
+                            }`}
+                          >
+                            {Number(ri.restockQuantity) > 0 ? `Restocked (${ri.restockQuantity})` : 'No Restock'}
+                          </span>
+                        </td>
+
+                        {/* Branch */}
+                        <td className="px-5 py-4 text-xs text-slate-600">
+                          <div className="font-medium text-slate-800">
+                            {ri.saleReturn?.branch?.name ?? '—'}
+                          </div>
+                          {ri.saleReturn?.branch?.branchCode && (
+                            <div className="font-mono text-[10px] text-slate-400">
+                              {ri.saleReturn.branch.branchCode}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Returned At */}
+                        <td className="px-5 py-4 text-xs text-slate-500 whitespace-nowrap">
+                          {ri.saleReturn?.returnedAt
+                            ? new Date(ri.saleReturn.returnedAt).toLocaleString()
+                            : '—'}
+                        </td>
+
+                        {/* Actions */}
+                        <td className="px-5 py-4 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => void openReturnDetail(ri.saleReturnId)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 transition"
+                              title="View return slip"
+                            >
+                              <Eye className="h-3 w-3" /> Return
+                            </button>
+                            {ri.saleReturn?.orderId && (
+                              <button
+                                type="button"
+                                onClick={() => void openOrderDetail(ri.saleReturn!.orderId)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 transition"
+                                title="View parent order"
+                              >
+                                <FileText className="h-3 w-3 text-slate-500" />
+                                <span className="hidden sm:inline">Order</span>
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredReturnItems.length === 0 && (
+                    <tr>
+                      <td colSpan={12} className="px-5 py-12 text-center text-sm text-slate-500">
+                        No return line items found matching current filters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             )}
           </div>
 
@@ -1903,6 +2181,19 @@ export default function SalesPage() {
                 setReturnPage(1);
               }}
               itemName="returns"
+            />
+          )}
+          {tab === 'return-items' && (
+            <DataTablePagination
+              currentPage={returnItemPage}
+              pageSize={returnItemPageSize}
+              totalItems={filteredReturnItems.length}
+              onPageChange={setReturnItemPage}
+              onPageSizeChange={(newSize) => {
+                setReturnItemPageSize(newSize);
+                setReturnItemPage(1);
+              }}
+              itemName="return items"
             />
           )}
         </div>

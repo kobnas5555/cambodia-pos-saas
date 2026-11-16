@@ -208,6 +208,16 @@ export function createInMemoryPrisma() {
         if (!expenseType || !matchesWhere(expenseType, val)) return false;
         continue;
       }
+      if (key === 'saleReturn' && val && typeof val === 'object') {
+        const sr = store.saleReturns.find((r) => r.id === row.saleReturnId);
+        if (!sr || !matchesWhere(sr, val)) return false;
+        continue;
+      }
+      if (key === 'orderItem' && val && typeof val === 'object') {
+        const oi = store.orderItems.find((item) => item.id === row.orderItemId);
+        if (!oi || !matchesWhere(oi, val)) return false;
+        continue;
+      }
       if (key === 'user' && val && typeof val === 'object') {
         const user = store.users.find((u) => u.id === row.userId);
         if (!user || !matchesWhere(user, val)) return false;
@@ -1520,6 +1530,73 @@ export function createInMemoryPrisma() {
             : {}),
           ...(include?.order ? { order: store.orders.find((o) => o.id === row.orderId) } : {}),
         };
+      },
+    },
+
+    saleReturnItem: {
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.saleReturnItems.filter((sri) => matchesWhere(sri, where)).length,
+      findFirst: async ({ where, include }: { where?: Row; include?: Row } = {}) => {
+        const found = store.saleReturnItems.find((sri) => matchesWhere(sri, where));
+        if (!found) return null;
+        return {
+          ...found,
+          ...(include?.product ? { product: store.products.find((p) => p.id === found.productId) ?? null } : {}),
+          ...(include?.orderItem ? { orderItem: store.orderItems.find((oi) => oi.id === found.orderItemId) ?? null } : {}),
+          ...(include?.saleReturn
+            ? {
+                saleReturn: (() => {
+                  const sr = store.saleReturns.find((r) => r.id === found.saleReturnId);
+                  if (!sr) return null;
+                  return {
+                    ...sr,
+                    branch: store.branches.find((b) => b.id === sr.branchId) ?? null,
+                    employee: store.employees.find((e) => e.id === sr.employeeId) ?? null,
+                    order: store.orders.find((o) => o.id === sr.orderId) ?? null,
+                  };
+                })(),
+              }
+            : {}),
+        };
+      },
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: {
+        where?: Row;
+        include?: Row;
+        orderBy?: any;
+        skip?: number;
+        take?: number;
+      } = {}) => {
+        let list = applyOrderBy(
+          store.saleReturnItems.filter((sri) => matchesWhere(sri, where)),
+          orderBy,
+        );
+        if (typeof skip === 'number') list = list.slice(skip);
+        if (typeof take === 'number') list = list.slice(0, take);
+        return list.map((sri) => ({
+          ...sri,
+          ...(include?.product ? { product: store.products.find((p) => p.id === sri.productId) ?? null } : {}),
+          ...(include?.orderItem ? { orderItem: store.orderItems.find((oi) => oi.id === sri.orderItemId) ?? null } : {}),
+          ...(include?.saleReturn
+            ? {
+                saleReturn: (() => {
+                  const sr = store.saleReturns.find((r) => r.id === sri.saleReturnId);
+                  if (!sr) return null;
+                  return {
+                    ...sr,
+                    branch: store.branches.find((b) => b.id === sr.branchId) ?? null,
+                    employee: store.employees.find((e) => e.id === sr.employeeId) ?? null,
+                    order: store.orders.find((o) => o.id === sr.orderId) ?? null,
+                  };
+                })(),
+              }
+            : {}),
+        }));
       },
     },
 
