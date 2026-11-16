@@ -88,6 +88,14 @@ export const updateCategorySchema = createCategorySchema.partial().extend({
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
 });
 
+export const listCategoriesQuerySchema = z.object({
+  search: z.string().optional(),
+  status: z.enum(['ALL', 'ACTIVE', 'INACTIVE']).optional().default('ALL'),
+  parentId: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
 export const createUnitSchema = z.object({
   name: z.string().trim().min(1).max(80),
   abbreviation: z.string().trim().min(1).max(20),
@@ -419,6 +427,7 @@ export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
 
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
+export type ListCategoriesQuery = z.infer<typeof listCategoriesQuerySchema>;
 export type CreateUnitInput = z.infer<typeof createUnitSchema>;
 export type UpdateUnitInput = z.infer<typeof updateUnitSchema>;
 export type CreateSupplierInput = z.infer<typeof createSupplierSchema>;

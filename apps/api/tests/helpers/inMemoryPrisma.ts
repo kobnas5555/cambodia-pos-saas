@@ -862,21 +862,54 @@ export function createInMemoryPrisma() {
     },
 
     category: {
-      findFirst: async ({ where }: { where: Row }) =>
-        store.categories.find((c) => matchesWhere(c, where)) ?? null,
-      findMany: async ({ where, include, orderBy }: { where?: Row; include?: Row; orderBy?: any } = {}) =>
-        applyOrderBy(
-          store.categories.filter((c) => matchesWhere(c, where)),
-          orderBy,
-        ).map((c) => ({
+      findFirst: async ({ where, include }: { where: Row; include?: Row }) => {
+        const c = store.categories.find((cat) => matchesWhere(cat, where));
+        if (!c) return null;
+        return {
           ...c,
           ...(include?.parent
             ? { parent: c.parentId ? store.categories.find((p) => p.id === c.parentId) ?? null : null }
             : {}),
           ...(include?._count
-            ? { _count: { products: store.products.filter((pr) => pr.categoryId === c.id).length } }
+            ? {
+                _count: {
+                  products: store.products.filter((pr) => pr.categoryId === c.id).length,
+                  children: store.categories.filter((ch) => ch.parentId === c.id).length,
+                },
+              }
             : {}),
-        })),
+        };
+      },
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: { where?: Row; include?: Row; orderBy?: any; skip?: number; take?: number } = {}) => {
+        let rows = applyOrderBy(
+          store.categories.filter((c) => matchesWhere(c, where)),
+          orderBy,
+        );
+        if (skip !== undefined) rows = rows.slice(skip);
+        if (take !== undefined) rows = rows.slice(0, take);
+        return rows.map((c) => ({
+          ...c,
+          ...(include?.parent
+            ? { parent: c.parentId ? store.categories.find((p) => p.id === c.parentId) ?? null : null }
+            : {}),
+          ...(include?._count
+            ? {
+                _count: {
+                  products: store.products.filter((pr) => pr.categoryId === c.id).length,
+                  children: store.categories.filter((ch) => ch.parentId === c.id).length,
+                },
+              }
+            : {}),
+        }));
+      },
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.categories.filter((c) => matchesWhere(c, where)).length,
       create: async ({ data }: { data: Row }) => {
         const now = new Date();
         const row = { id: uuid(), status: 'ACTIVE', createdAt: now, updatedAt: now, ...data };
@@ -888,6 +921,12 @@ export function createInMemoryPrisma() {
         if (idx === -1) throw new Error('Category not found');
         store.categories[idx] = { ...store.categories[idx], ...data, updatedAt: new Date() };
         return { ...store.categories[idx] };
+      },
+      delete: async ({ where }: { where: Row }) => {
+        const idx = store.categories.findIndex((c) => matchesWhere(c, where));
+        if (idx === -1) throw new Error('Category not found');
+        const [removed] = store.categories.splice(idx, 1);
+        return { ...removed };
       },
     },
 

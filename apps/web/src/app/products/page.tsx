@@ -36,7 +36,9 @@ interface CategoryRow {
   parentId: string | null;
   status: string;
   parent?: { id: string; name: string } | null;
-  _count?: { products: number };
+  _count?: { products: number; children?: number };
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface UnitRow {
@@ -151,6 +153,13 @@ export default function ProductsCatalogPage() {
   const [catDesc, setCatDesc] = useState('');
   const [catParentId, setCatParentId] = useState('');
   const [catStatus, setCatStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
+
+  // Category table filters & pagination
+  const [catSearch, setCatSearch] = useState('');
+  const [catStatusFilter, setCatStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [catHierarchyFilter, setCatHierarchyFilter] = useState<'ALL' | 'ROOT' | 'SUBCATEGORY'>('ALL');
+  const [catPage, setCatPage] = useState<number>(1);
+  const [catPageSize, setCatPageSize] = useState<number>(10);
 
   // Unit modal state
   const [unitModal, setUnitModal] = useState(false);
@@ -352,6 +361,43 @@ export default function ProductsCatalogPage() {
     }
   };
 
+  const handleToggleCategoryStatus = async (cat: CategoryRow) => {
+    setError(null);
+    try {
+      const nextStatus = cat.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+      await apiRequest(`/categories/${cat.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      setFeedback(`Category "${cat.name}" status updated to ${nextStatus}.`);
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Unable to update category status');
+    }
+  };
+
+  const handleDeleteCategory = async (cat: CategoryRow) => {
+    if (cat._count && cat._count.products > 0) {
+      if (
+        !confirm(
+          `Notice: Category "${cat.name}" has ${cat._count.products} linked product(s). Deactivating it is recommended to keep historical sales records intact. Deactivate now?`,
+        )
+      ) {
+        return;
+      }
+      return handleToggleCategoryStatus(cat);
+    }
+    if (!confirm(`Are you sure you want to delete category "${cat.name}"?`)) return;
+    setError(null);
+    try {
+      await apiRequest(`/categories/${cat.id}`, { method: 'DELETE' });
+      setFeedback(`Category "${cat.name}" deleted.`);
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Unable to delete category');
+    }
+  };
+
   // Unit CRUD
   const saveUnit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -458,9 +504,30 @@ export default function ProductsCatalogPage() {
     return filteredProducts.slice(start, start + prodPageSize);
   }, [filteredProducts, prodPage, prodPageSize]);
 
-  const filteredCategories = categories.filter(
-    (c) => !q || c.name.toLowerCase().includes(q) || (c.description ?? '').toLowerCase().includes(q),
-  );
+  const filteredCategories = useMemo(() => {
+    return categories.filter((c) => {
+      if (catStatusFilter !== 'ALL' && c.status !== catStatusFilter) return false;
+      if (catHierarchyFilter === 'ROOT' && c.parentId !== null) return false;
+      if (catHierarchyFilter === 'SUBCATEGORY' && c.parentId === null) return false;
+      if (catSearch.trim()) {
+        const query = catSearch.trim().toLowerCase();
+        const matchesName = c.name.toLowerCase().includes(query);
+        const matchesDesc = (c.description ?? '').toLowerCase().includes(query);
+        const matchesParent = (c.parent?.name ?? '').toLowerCase().includes(query);
+        if (!matchesName && !matchesDesc && !matchesParent) return false;
+      }
+      return true;
+    });
+  }, [categories, catStatusFilter, catHierarchyFilter, catSearch]);
+
+  useEffect(() => {
+    setCatPage(1);
+  }, [catSearch, catStatusFilter, catHierarchyFilter]);
+
+  const paginatedCategories = useMemo(() => {
+    const start = (catPage - 1) * catPageSize;
+    return filteredCategories.slice(start, start + catPageSize);
+  }, [filteredCategories, catPage, catPageSize]);
 
   const filteredSuppliers = suppliers.filter(
     (s) =>
@@ -710,7 +777,59 @@ export default function ProductsCatalogPage() {
                 </select>
               </>
             )}
-            {tab !== 'units' && (
+
+            {tab === 'categories' && (
+              <>
+                <select
+                  aria-label="Filter categories by status"
+                  value={catStatusFilter}
+                  onChange={(e) => setCatStatusFilter(e.target.value as any)}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="ALL">All Status</option>
+                  <option value="ACTIVE">{t.common.active}</option>
+                  <option value="INACTIVE">{t.common.inactive}</option>
+                </select>
+
+                <select
+                  aria-label="Filter categories by hierarchy"
+                  value={catHierarchyFilter}
+                  onChange={(e) => setCatHierarchyFilter(e.target.value as any)}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="ALL">All Categories</option>
+                  <option value="ROOT">Top-Level / Root Only</option>
+                  <option value="SUBCATEGORY">Sub-Categories Only</option>
+                </select>
+
+                <div className="relative w-full sm:w-60">
+                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={catSearch}
+                    onChange={(e) => setCatSearch(e.target.value)}
+                    placeholder="Search category name or desc..."
+                    className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm shadow-sm focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                {(catSearch || catStatusFilter !== 'ALL' || catHierarchyFilter !== 'ALL') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCatSearch('');
+                      setCatStatusFilter('ALL');
+                      setCatHierarchyFilter('ALL');
+                    }}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Reset
+                  </button>
+                )}
+              </>
+            )}
+
+            {tab !== 'units' && tab !== 'categories' && (
               <div className="relative w-full sm:w-60">
                 <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                 <input
@@ -907,18 +1026,41 @@ export default function ProductsCatalogPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredCategories.length === 0 ? (
+                  {paginatedCategories.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                         {t.common.noData}
                       </td>
                     </tr>
                   ) : (
-                    filteredCategories.map((c) => (
+                    paginatedCategories.map((c) => (
                       <tr key={c.id} className="hover:bg-slate-50/50">
-                        <td className="px-4 py-3 font-semibold text-slate-900">{c.name}</td>
-                        <td className="px-4 py-3 text-slate-600">{c.parent?.name ?? '—'}</td>
-                        <td className="px-4 py-3 text-slate-600">{c.description || '—'}</td>
+                        <td className="px-4 py-3 font-semibold text-slate-900">
+                          <div className="flex items-center gap-2">
+                            {c.parentId ? <span className="text-slate-300 pl-1">↳</span> : null}
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-slate-900">{c.name}</span>
+                                {c.parentId ? (
+                                  <span className="rounded bg-sky-50 px-1.5 py-0.2 text-[10px] font-semibold text-sky-700">Sub</span>
+                                ) : (
+                                  <span className="rounded bg-purple-50 px-1.5 py-0.2 text-[10px] font-semibold text-purple-700">Root</span>
+                                )}
+                              </div>
+                              <span className="block text-[10px] font-mono text-slate-400">ID: {c.id.slice(0, 8)}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">
+                          {c.parent ? (
+                            <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-800">
+                              {c.parent.name}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">None (Top-Level)</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-600 max-w-xs truncate">{c.description || '—'}</td>
                         <td className="px-4 py-3 text-slate-700">
                           <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold">
                             {c._count?.products ?? 0}
@@ -936,24 +1078,46 @@ export default function ProductsCatalogPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {canUpdate ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingCat(c);
-                                setCatName(c.name);
-                                setCatDesc(c.description ?? '');
-                                setCatParentId(c.parentId ?? '');
-                                setCatStatus(c.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE');
-                                setCatModal(true);
-                              }}
-                              className="rounded border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                            >
-                              {t.common.edit}
-                            </button>
-                          ) : (
-                            <span className="text-xs text-slate-400">Read-only</span>
-                          )}
+                          <div className="flex items-center justify-end gap-1.5">
+                            {canUpdate ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingCat(c);
+                                    setCatName(c.name);
+                                    setCatDesc(c.description ?? '');
+                                    setCatParentId(c.parentId ?? '');
+                                    setCatStatus(c.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE');
+                                    setCatModal(true);
+                                  }}
+                                  className="rounded border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                >
+                                  {t.common.edit}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleCategoryStatus(c)}
+                                  className={`rounded border px-2.5 py-1 text-xs font-medium ${
+                                    c.status === 'ACTIVE'
+                                      ? 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                      : 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                                  }`}
+                                >
+                                  {c.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCategory(c)}
+                                  className="rounded border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                                >
+                                  Delete
+                                </button>
+                              </>
+                            ) : (
+                              <span className="text-xs text-slate-400">Read-only</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -1105,6 +1269,17 @@ export default function ProductsCatalogPage() {
               onPageChange={setProdPage}
               onPageSizeChange={setProdPageSize}
               itemName="products"
+            />
+          )}
+
+          {tab === 'categories' && (
+            <DataTablePagination
+              currentPage={catPage}
+              pageSize={catPageSize}
+              totalItems={filteredCategories.length}
+              onPageChange={setCatPage}
+              onPageSizeChange={setCatPageSize}
+              itemName="categories"
             />
           )}
         </div>

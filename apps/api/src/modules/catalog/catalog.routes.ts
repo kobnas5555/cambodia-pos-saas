@@ -28,6 +28,12 @@ categoriesRouter.patch(
   validate({ params: idParam('categoryId'), body: updateCategorySchema }),
   controller.patchCategory,
 );
+categoriesRouter.delete(
+  '/:categoryId',
+  requirePermission('products.archive'),
+  validate({ params: idParam('categoryId') }),
+  controller.deleteCategory,
+);
 
 export const unitsRouter = Router();
 unitsRouter.use(authenticate, requireTenantContext);

@@ -10,9 +10,17 @@ const actor = (req: Request) => ({
 
 // Categories
 export const getCategories = asyncHandler(async (req: Request, res: Response) => {
-  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
-  const data = await catalogService.listCategories(req.tenant!.tenantId, search);
-  res.json({ success: true, data });
+  const result = await catalogService.listCategories(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data: result.items,
+    pagination: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+    },
+  });
 });
 
 export const postCategory = asyncHandler(async (req: Request, res: Response) => {
@@ -26,6 +34,15 @@ export const patchCategory = asyncHandler(async (req: Request, res: Response) =>
     req.params.categoryId,
     actor(req),
     req.body,
+  );
+  res.json({ success: true, data });
+});
+
+export const deleteCategory = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.deleteCategory(
+    req.tenant!.tenantId,
+    req.params.categoryId,
+    actor(req),
   );
   res.json({ success: true, data });
 });
