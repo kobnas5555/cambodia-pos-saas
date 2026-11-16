@@ -420,6 +420,38 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
 
     const orderItemId = order.orderItems[0].id;
 
+    // Verify order_items listing endpoint with pagination and search
+    const orderItemsListRes = await request(app)
+      .get(`/api/v1/orders/items?branchId=${branchId}&page=1&limit=10&search=${encodeURIComponent(order.orderItems[0].skuSnapshot)}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(orderItemsListRes.status).toBe(200);
+    expect(orderItemsListRes.body.data.length).toBeGreaterThanOrEqual(1);
+    expect(orderItemsListRes.body.pagination).toBeDefined();
+    expect(orderItemsListRes.body.pagination.page).toBe(1);
+    expect(orderItemsListRes.body.pagination.limit).toBe(10);
+    expect(orderItemsListRes.body.pagination.total).toBeGreaterThanOrEqual(1);
+
+    const verifiedItem = orderItemsListRes.body.data.find((item: any) => item.id === orderItemId);
+    expect(verifiedItem).toBeDefined();
+    expect(verifiedItem.orderId).toBe(order.id);
+    expect(verifiedItem.productId).toBe(productId);
+    expect(verifiedItem.productNameSnapshot).toBeDefined();
+    expect(verifiedItem.skuSnapshot).toBeDefined();
+    expect(Number(verifiedItem.quantity)).toBeGreaterThan(0);
+    expect(Number(verifiedItem.unitPrice)).toBeGreaterThan(0);
+    expect(Number(verifiedItem.unitCostSnapshot)).toBeGreaterThanOrEqual(0);
+    expect(Number(verifiedItem.discountAmount)).toBeGreaterThanOrEqual(0);
+    expect(Number(verifiedItem.taxAmount)).toBeGreaterThanOrEqual(0);
+    expect(Number(verifiedItem.lineTotal)).toBeGreaterThan(0);
+
+    // Verify order-specific line items endpoint
+    const orderSpecificItemsRes = await request(app)
+      .get(`/api/v1/orders/${order.id}/items`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(orderSpecificItemsRes.status).toBe(200);
+    expect(orderSpecificItemsRes.body.data.length).toBe(1);
+    expect(orderSpecificItemsRes.body.data[0].id).toBe(orderItemId);
+
     // Net cash collected for shift = 15.00 cash - 5.00 change = 10.00 -> expectedCash = 110.00
     const curShift = await request(app)
       .get(`/api/v1/shifts/current?branchId=${branchId}`)

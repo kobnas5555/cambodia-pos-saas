@@ -1288,13 +1288,66 @@ export function createInMemoryPrisma() {
     },
 
     orderItem: {
-      findMany: async ({ where, include }: { where?: Row; include?: Row } = {}) =>
-        store.orderItems
-          .filter((oi) => matchesWhere(oi, where))
-          .map((oi) => ({
-            ...oi,
-            ...(include?.order ? { order: store.orders.find((o) => o.id === oi.orderId) ?? null } : {}),
-          })),
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.orderItems.filter((oi) => matchesWhere(oi, where)).length,
+      findFirst: async ({ where, include }: { where?: Row; include?: Row } = {}) => {
+        const found = store.orderItems.find((oi) => matchesWhere(oi, where));
+        if (!found) return null;
+        return {
+          ...found,
+          ...(include?.product ? { product: store.products.find((p) => p.id === found.productId) ?? null } : {}),
+          ...(include?.order
+            ? {
+                order: (() => {
+                  const o = store.orders.find((ord) => ord.id === found.orderId);
+                  if (!o) return null;
+                  return {
+                    ...o,
+                    branch: store.branches.find((b) => b.id === o.branchId) ?? null,
+                    customer: o.customerId ? store.customers.find((c) => c.id === o.customerId) ?? null : null,
+                  };
+                })(),
+              }
+            : {}),
+        };
+      },
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: {
+        where?: Row;
+        include?: Row;
+        orderBy?: any;
+        skip?: number;
+        take?: number;
+      } = {}) => {
+        let list = applyOrderBy(
+          store.orderItems.filter((oi) => matchesWhere(oi, where)),
+          orderBy,
+        );
+        if (typeof skip === 'number') list = list.slice(skip);
+        if (typeof take === 'number') list = list.slice(0, take);
+        return list.map((oi) => ({
+          ...oi,
+          ...(include?.product ? { product: store.products.find((p) => p.id === oi.productId) ?? null } : {}),
+          ...(include?.order
+            ? {
+                order: (() => {
+                  const o = store.orders.find((ord) => ord.id === oi.orderId);
+                  if (!o) return null;
+                  return {
+                    ...o,
+                    branch: store.branches.find((b) => b.id === o.branchId) ?? null,
+                    customer: o.customerId ? store.customers.find((c) => c.id === o.customerId) ?? null : null,
+                  };
+                })(),
+              }
+            : {}),
+        }));
+      },
     },
 
     payment: {

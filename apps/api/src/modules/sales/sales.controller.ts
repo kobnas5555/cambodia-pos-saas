@@ -27,6 +27,23 @@ export const getOrder = asyncHandler(async (req: Request, res: Response) => {
   res.json({ success: true, data });
 });
 
+export const getOrderItems = asyncHandler(async (req: Request, res: Response) => {
+  const result = await salesService.listOrderItems(req.tenant!.tenantId, {
+    ...req.query,
+    orderId: req.params.orderId || req.query.orderId,
+  } as any);
+  res.json({
+    success: true,
+    data: result.items ?? result,
+    pagination: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+    },
+  });
+});
+
 export const postOrder = asyncHandler(async (req: Request, res: Response) => {
   const data = await salesService.createOrder(req.tenant!.tenantId, actor(req), req.body);
   res.status(201).json({ success: true, data });

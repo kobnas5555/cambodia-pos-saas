@@ -10,6 +10,7 @@ import {
 import {
   AlertTriangle,
   ArrowUpRight,
+  Boxes,
   Building2,
   Calendar,
   CheckCircle2,
@@ -19,6 +20,7 @@ import {
   Download,
   Eye,
   FileText,
+  Package,
   Plus,
   Printer,
   Receipt,
@@ -27,6 +29,7 @@ import {
   Search,
   ShoppingBag,
   Sparkles,
+  Tag,
   TrendingUp,
   User,
   Users,
@@ -68,6 +71,36 @@ interface OrderSummary {
   _count?: { orderItems: number; payments: number; saleReturns?: number };
 }
 
+interface OrderItemRow {
+  id: string;
+  orderId: string;
+  productId: string;
+  productNameSnapshot: string;
+  skuSnapshot: string;
+  quantity: string;
+  unitPrice: string;
+  unitCostSnapshot: string;
+  discountAmount: string;
+  taxAmount: string;
+  lineTotal: string;
+  order?: {
+    id: string;
+    orderNumber: string;
+    currencyCode: CurrencyCode;
+    status: string;
+    createdAt: string;
+    branch?: { id: string; name: string; branchCode?: string };
+    customer?: { id: string; name: string; customerCode?: string } | null;
+  };
+  product?: {
+    id: string;
+    name: string;
+    sku: string;
+    barcode?: string | null;
+    trackInventory: boolean;
+  };
+}
+
 interface OrderDetail extends OrderSummary {
   orderItems: Array<{
     id: string;
@@ -76,6 +109,7 @@ interface OrderDetail extends OrderSummary {
     skuSnapshot: string;
     quantity: string;
     unitPrice: string;
+    unitCostSnapshot?: string;
     discountAmount: string;
     taxAmount: string;
     lineTotal: string;
@@ -176,7 +210,7 @@ export default function SalesPage() {
   const { t } = useI18n();
   const canRefund = hasPermission('sales.refund');
 
-  const [tab, setTab] = useState<'orders' | 'payments' | 'returns'>('orders');
+  const [tab, setTab] = useState<'orders' | 'items' | 'payments' | 'returns'>('orders');
   const [search, setSearch] = useState('');
   const [branchFilter, setBranchFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -188,12 +222,15 @@ export default function SalesPage() {
   // Pagination states
   const [orderPage, setOrderPage] = useState(1);
   const [orderPageSize, setOrderPageSize] = useState(10);
+  const [itemPage, setItemPage] = useState(1);
+  const [itemPageSize, setItemPageSize] = useState(10);
   const [paymentPage, setPaymentPage] = useState(1);
   const [paymentPageSize, setPaymentPageSize] = useState(10);
   const [returnPage, setReturnPage] = useState(1);
   const [returnPageSize, setReturnPageSize] = useState(10);
 
   const [orders, setOrders] = useState<OrderSummary[]>([]);
+  const [orderItems, setOrderItems] = useState<OrderItemRow[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [returnsList, setReturnsList] = useState<ReturnRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -228,6 +265,11 @@ export default function SalesPage() {
       if (statusFilter !== 'ALL') orderQs.set('status', statusFilter);
       if (orderCurrencyFilter !== 'ALL') orderQs.set('currencyCode', orderCurrencyFilter);
 
+      const itemQs = new URLSearchParams();
+      if (activeBranch) itemQs.set('branchId', activeBranch.id);
+      else if (branchFilter !== 'ALL') itemQs.set('branchId', branchFilter);
+      if (search.trim()) itemQs.set('search', search.trim());
+
       const paymentQs = new URLSearchParams();
       if (activeBranch) paymentQs.set('branchId', activeBranch.id);
       else if (branchFilter !== 'ALL') paymentQs.set('branchId', branchFilter);
@@ -241,12 +283,14 @@ export default function SalesPage() {
       if (search.trim()) returnQs.set('search', search.trim());
       if (refundMethodFilter !== 'ALL') returnQs.set('refundMethod', refundMethodFilter);
 
-      const [ords, pays, rets] = await Promise.all([
+      const [ords, items, pays, rets] = await Promise.all([
         apiRequest<OrderSummary[]>(`/orders?${orderQs.toString()}`),
+        apiRequest<OrderItemRow[]>(`/orders/items?${itemQs.toString()}`),
         apiRequest<PaymentRow[]>(`/payments?${paymentQs.toString()}`),
         apiRequest<ReturnRow[]>(`/returns?${returnQs.toString()}`),
       ]);
       setOrders(ords);
+      setOrderItems(items);
       setPayments(pays);
       setReturnsList(rets);
     } catch (err) {
@@ -273,6 +317,7 @@ export default function SalesPage() {
   // Reset pages when filters change
   useEffect(() => {
     setOrderPage(1);
+    setItemPage(1);
     setPaymentPage(1);
     setReturnPage(1);
   }, [search, branchFilter, statusFilter, orderCurrencyFilter, tab]);
@@ -459,6 +504,7 @@ export default function SalesPage() {
     let completedCount = 0;
     let refundedCount = 0;
     let totalRefundedUsd = 0;
+    let totalUnitsSold = 0;
 
     orders.forEach((o) => {
       const amt = parseFloat(o.totalAmount || '0') || 0;
@@ -466,6 +512,10 @@ export default function SalesPage() {
       grossUsd += inUsd;
       if (o.status === 'COMPLETED') completedCount += 1;
       if (o.status === 'RETURNED' || o.status === 'PARTIALLY_RETURNED') refundedCount += 1;
+    });
+
+    orderItems.forEach((oi) => {
+      totalUnitsSold += parseFloat(oi.quantity || '0') || 0;
     });
 
     returnsList.forEach((r) => {
@@ -483,9 +533,10 @@ export default function SalesPage() {
       grossUsd,
       avgBasket,
       totalRefundedUsd,
+      totalUnitsSold,
       totalPayments: payments.length,
     };
-  }, [orders, returnsList, payments]);
+  }, [orders, orderItems, returnsList, payments]);
 
   // Client-side filtering & search fallbacks
   const filteredOrders = useMemo(() => {
@@ -508,10 +559,30 @@ export default function SalesPage() {
     });
   }, [orders, search, statusFilter, orderCurrencyFilter, branchFilter]);
 
+  const filteredOrderItems = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return orderItems.filter((oi) => {
+      if (branchFilter !== 'ALL' && oi.order?.branch?.id && oi.order.branch.id !== branchFilter) return false;
+      if (!q) return true;
+      return (
+        oi.productNameSnapshot.toLowerCase().includes(q) ||
+        oi.skuSnapshot.toLowerCase().includes(q) ||
+        (oi.order?.orderNumber && oi.order.orderNumber.toLowerCase().includes(q)) ||
+        (oi.order?.customer?.name && oi.order.customer.name.toLowerCase().includes(q)) ||
+        oi.id.toLowerCase().includes(q)
+      );
+    });
+  }, [orderItems, search, branchFilter]);
+
   const paginatedOrders = useMemo(() => {
     const start = (orderPage - 1) * orderPageSize;
     return filteredOrders.slice(start, start + orderPageSize);
   }, [filteredOrders, orderPage, orderPageSize]);
+
+  const paginatedOrderItems = useMemo(() => {
+    const start = (itemPage - 1) * itemPageSize;
+    return filteredOrderItems.slice(start, start + itemPageSize);
+  }, [filteredOrderItems, itemPage, itemPageSize]);
 
   const paginatedPayments = useMemo(() => {
     const start = (paymentPage - 1) * paymentPageSize;
@@ -535,11 +606,11 @@ export default function SalesPage() {
                 {t.nav.sales}
               </h1>
               <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                {orders.length} orders
+                {orders.length} orders · {orderItems.length} line items
               </span>
             </div>
             <p className="mt-1 text-sm text-slate-600">
-              Manage transactions, customer checkouts, multi-currency split payments, and customer returns.
+              Manage transactions, order line items snapshots, profit margins, multi-currency split payments, and customer returns.
             </p>
           </div>
 
@@ -607,7 +678,7 @@ export default function SalesPage() {
                 {kpis.completedCount} completed
               </span>
             </div>
-            <p className="mt-1 text-xs text-slate-500">Total checkout orders</p>
+            <p className="mt-1 text-xs text-slate-500">{kpis.totalUnitsSold} total units sold</p>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -675,7 +746,7 @@ export default function SalesPage() {
         <div className="space-y-3 print:hidden">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
             <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1">
-              {(['orders', 'payments', 'returns'] as const).map((k) => (
+              {(['orders', 'items', 'payments', 'returns'] as const).map((k) => (
                 <button
                   key={k}
                   type="button"
@@ -688,9 +759,11 @@ export default function SalesPage() {
                 >
                   {k === 'orders'
                     ? `Orders (${filteredOrders.length})`
-                    : k === 'payments'
-                      ? `Payments (${payments.length})`
-                      : `Returns (${returnsList.length})`}
+                    : k === 'items'
+                      ? `Order Items (${filteredOrderItems.length})`
+                      : k === 'payments'
+                        ? `Payments (${payments.length})`
+                        : `Returns (${returnsList.length})`}
                 </button>
               ))}
             </div>
@@ -801,9 +874,11 @@ export default function SalesPage() {
                   placeholder={
                     tab === 'orders'
                       ? 'Order #, customer, shift, cashier...'
-                      : tab === 'payments'
-                        ? 'Order # or reference #...'
-                        : 'Return # or order #...'
+                      : tab === 'items'
+                        ? 'Product name, SKU, or order #...'
+                        : tab === 'payments'
+                          ? 'Order # or reference #...'
+                          : 'Return # or order #...'
                   }
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-7 text-xs focus:border-emerald-500 focus:bg-white focus:outline-none transition"
                 />
@@ -1031,6 +1106,184 @@ export default function SalesPage() {
                   )}
                 </tbody>
               </table>
+            ) : tab === 'items' ? (
+              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                <thead className="bg-slate-50/75 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="px-5 py-3.5">Product & SKU Snapshot</th>
+                    <th className="px-5 py-3.5">Order # & Date</th>
+                    <th className="px-5 py-3.5">Branch & Customer</th>
+                    <th className="px-5 py-3.5 text-center">Quantity</th>
+                    <th className="px-5 py-3.5">Unit Price & Cost</th>
+                    <th className="px-5 py-3.5">Discount & Tax</th>
+                    <th className="px-5 py-3.5">Line Total & Profit</th>
+                    <th className="px-5 py-3.5 text-right">{t.common.actions}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={8} className="px-5 py-12 text-center text-slate-500">
+                        <div className="flex flex-col items-center gap-2">
+                          <RefreshCw className="h-6 w-6 animate-spin text-emerald-600" />
+                          <span className="text-sm">{t.common.loading}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredOrderItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-5 py-12 text-center text-slate-500">
+                        <Boxes className="mx-auto h-8 w-8 text-slate-300" />
+                        <p className="mt-2 text-sm font-medium text-slate-900">{t.common.noData}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {search
+                            ? 'No order line items match your search criteria.'
+                            : 'No sold product line items recorded yet.'}
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedOrderItems.map((oi) => {
+                      const cur = oi.order?.currencyCode ?? 'USD';
+                      const qty = parseFloat(oi.quantity || '0') || 0;
+                      const uPrice = parseFloat(oi.unitPrice || '0') || 0;
+                      const uCost = parseFloat(oi.unitCostSnapshot || '0') || 0;
+                      const totalCost = qty * uCost;
+                      const lTotal = parseFloat(oi.lineTotal || '0') || 0;
+                      const profit = lTotal - totalCost;
+                      const marginPct = lTotal > 0 ? (profit / lTotal) * 100 : 0;
+
+                      return (
+                        <tr key={oi.id} className="hover:bg-slate-50/50 transition">
+                          {/* Product Snapshot & SKU */}
+                          <td className="px-5 py-4">
+                            <div className="space-y-0.5">
+                              <p className="font-semibold text-slate-900 text-xs">
+                                {oi.productNameSnapshot}
+                              </p>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200">
+                                  {oi.skuSnapshot}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyId(oi.id)}
+                                  title={`Item UUID: ${oi.id}`}
+                                  className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 rounded px-1 transition"
+                                >
+                                  <span>{oi.id.slice(0, 8)}...</span>
+                                  <Copy className="h-2.5 w-2.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Order # & Date */}
+                          <td className="px-5 py-4">
+                            <div className="space-y-0.5 text-xs">
+                              {oi.order ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void openOrderDetail(oi.orderId)}
+                                  className="font-mono font-bold text-emerald-700 hover:underline block text-left"
+                                >
+                                  {oi.order.orderNumber}
+                                </button>
+                              ) : (
+                                <span className="font-mono text-slate-600">{oi.orderId.slice(0, 8)}</span>
+                              )}
+                              <span className="text-[10px] text-slate-400 block">
+                                {oi.order?.createdAt ? new Date(oi.order.createdAt).toLocaleDateString() : '—'}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Branch & Customer */}
+                          <td className="px-5 py-4">
+                            <div className="space-y-0.5 text-xs">
+                              <div className="text-slate-700 font-medium truncate max-w-[140px]">
+                                {oi.order?.branch?.name ?? '—'}
+                              </div>
+                              <div className="text-[10px] text-slate-500 truncate max-w-[140px]">
+                                {oi.order?.customer?.name ?? 'Walk-in Guest'}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Quantity */}
+                          <td className="px-5 py-4 text-center">
+                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 font-mono text-xs font-bold text-slate-800 border border-slate-200">
+                              {oi.quantity}
+                            </span>
+                          </td>
+
+                          {/* Unit Price & Cost */}
+                          <td className="px-5 py-4">
+                            <div className="space-y-0.5 text-xs">
+                              <div className="font-bold text-slate-900">
+                                {formatCurrency(oi.unitPrice, cur)}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                Cost: {formatCurrency(oi.unitCostSnapshot, cur)}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Discount & Tax */}
+                          <td className="px-5 py-4">
+                            <div className="space-y-0.5 text-xs">
+                              {parseFloat(oi.discountAmount || '0') > 0 ? (
+                                <div className="text-rose-600 font-medium">
+                                  -{formatCurrency(oi.discountAmount, cur)}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">&mdash;</span>
+                              )}
+                              {parseFloat(oi.taxAmount || '0') > 0 && (
+                                <div className="text-slate-500 text-[10px]">
+                                  +{formatCurrency(oi.taxAmount, cur)} tax
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Line Total & Margin */}
+                          <td className="px-5 py-4">
+                            <div className="space-y-0.5">
+                              <div className="font-bold text-slate-900 text-sm">
+                                {formatCurrency(oi.lineTotal, cur)}
+                              </div>
+                              <div className="flex items-center gap-1 text-[10px]">
+                                <span
+                                  className={`font-semibold ${
+                                    profit >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                                  }`}
+                                >
+                                  {profit >= 0 ? '+' : ''}
+                                  {formatCurrency(profit.toFixed(2), cur)} ({Math.round(marginPct)}%)
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Actions */}
+                          <td className="px-5 py-4 text-right">
+                            <button
+                              type="button"
+                              onClick={() => void openOrderDetail(oi.orderId)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition"
+                              title="View parent order"
+                            >
+                              <Eye className="h-3.5 w-3.5 text-slate-500" />
+                              <span className="hidden sm:inline">Order</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
             ) : tab === 'payments' ? (
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50/75 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -1187,6 +1440,16 @@ export default function SalesPage() {
               onPageChange={setOrderPage}
               onPageSizeChange={setOrderPageSize}
               itemName="orders"
+            />
+          )}
+          {tab === 'items' && (
+            <DataTablePagination
+              currentPage={itemPage}
+              pageSize={itemPageSize}
+              totalItems={filteredOrderItems.length}
+              onPageChange={setItemPage}
+              onPageSizeChange={setItemPageSize}
+              itemName="order items"
             />
           )}
           {tab === 'payments' && (
