@@ -3,6 +3,7 @@ import {
   createSaleReturnSchema,
   listOrderItemsQuerySchema,
   listOrdersQuerySchema,
+  listPaymentsQuerySchema,
 } from '@cambodia-pos/shared';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -22,10 +23,11 @@ ordersRouter.get('/', requirePermission('sales.view'), validate({ query: listOrd
 ordersRouter.post('/', requirePermission('sales.create'), validate({ body: createOrderSchema }), controller.postOrder);
 ordersRouter.get('/:orderId', requirePermission('sales.view'), validate({ params: idParam }), controller.getOrder);
 ordersRouter.get('/:orderId/items', requirePermission('sales.view'), validate({ params: idParam }), controller.getOrderItems);
+ordersRouter.get('/:orderId/payments', requirePermission('sales.view'), validate({ params: idParam, query: listPaymentsQuerySchema }), controller.getPayments);
 
 export const paymentsRouter = Router();
 paymentsRouter.use(authenticate, requireTenantContext);
-paymentsRouter.get('/', requirePermission('sales.view'), controller.getPayments);
+paymentsRouter.get('/', requirePermission('sales.view'), validate({ query: listPaymentsQuerySchema }), controller.getPayments);
 
 export const returnsRouter = Router();
 returnsRouter.use(authenticate, requireTenantContext);

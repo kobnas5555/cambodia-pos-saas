@@ -1351,27 +1351,54 @@ export function createInMemoryPrisma() {
     },
 
     payment: {
-      findMany: async ({ where, include, orderBy, take }: { where?: Row; include?: Row; orderBy?: any; take?: number } = {}) =>
-        applyOrderBy(
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.payments.filter((p) => matchesWhere(p, where)).length,
+      findFirst: async ({ where, include }: { where?: Row; include?: Row } = {}) => {
+        const p = store.payments.find((item) => matchesWhere(item, where));
+        if (!p) return null;
+        const out: Row = { ...p };
+        if (include?.order) {
+          const order = store.orders.find((o) => o.id === p.orderId);
+          out.order = order
+            ? {
+                ...order,
+                branch: store.branches.find((b) => b.id === order.branchId) ?? null,
+                cashierEmployee:
+                  store.employees.find((e) => e.id === order.cashierEmployeeId) ?? null,
+              }
+            : null;
+        }
+        return out;
+      },
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: { where?: Row; include?: Row; orderBy?: any; skip?: number; take?: number } = {}) => {
+        const sorted = applyOrderBy(
           store.payments.filter((p) => matchesWhere(p, where)),
           orderBy,
-        )
-          .slice(0, take ?? 200)
-          .map((p) => {
-            const out: Row = { ...p };
-            if (include?.order) {
-              const order = store.orders.find((o) => o.id === p.orderId);
-              out.order = order
-                ? {
-                    ...order,
-                    branch: store.branches.find((b) => b.id === order.branchId) ?? null,
-                    cashierEmployee:
-                      store.employees.find((e) => e.id === order.cashierEmployeeId) ?? null,
-                  }
-                : null;
-            }
-            return out;
-          }),
+        );
+        const start = skip ?? 0;
+        const page = sorted.slice(start, start + (take ?? 200));
+        return page.map((p) => {
+          const out: Row = { ...p };
+          if (include?.order) {
+            const order = store.orders.find((o) => o.id === p.orderId);
+            out.order = order
+              ? {
+                  ...order,
+                  branch: store.branches.find((b) => b.id === order.branchId) ?? null,
+                  cashierEmployee:
+                    store.employees.find((e) => e.id === order.cashierEmployeeId) ?? null,
+                }
+              : null;
+          }
+          return out;
+        });
+      },
     },
 
     saleReturn: {

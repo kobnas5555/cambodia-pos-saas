@@ -50,13 +50,21 @@ export const postOrder = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const getPayments = asyncHandler(async (req: Request, res: Response) => {
-  const data = await salesService.listPayments(req.tenant!.tenantId, {
-    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
-    paymentMethod: typeof req.query.paymentMethod === 'string' ? req.query.paymentMethod : undefined,
-    currencyCode: typeof req.query.currencyCode === 'string' ? req.query.currencyCode : undefined,
-    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+  const query = {
+    ...req.query,
+    ...(req.params.orderId ? { orderId: req.params.orderId } : {}),
+  };
+  const data = await salesService.listPayments(req.tenant!.tenantId, query as any);
+  res.json({
+    success: true,
+    data,
+    pagination: {
+      page: (data as any).page ?? 1,
+      limit: (data as any).limit ?? 20,
+      total: (data as any).total ?? data.length,
+      totalPages: (data as any).totalPages ?? 1,
+    },
   });
-  res.json({ success: true, data });
 });
 
 export const getSaleReturns = asyncHandler(async (req: Request, res: Response) => {

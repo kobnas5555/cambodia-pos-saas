@@ -245,6 +245,21 @@ export const listOrderItemsQuerySchema = z.object({
 
 export type ListOrderItemsQueryInput = z.infer<typeof listOrderItemsQuerySchema>;
 
+export const listPaymentsQuerySchema = z.object({
+  search: z.string().optional(),
+  orderId: z.string().uuid().optional(),
+  branchId: z.string().uuid().optional(),
+  paymentMethod: z.string().optional(),
+  currencyCode: z.string().optional(),
+  status: z.string().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListPaymentsQueryInput = z.infer<typeof listPaymentsQuerySchema>;
+
 // ============================================================================
 // Phase 6: Purchasing & Purchase Payments
 // ============================================================================

@@ -1291,6 +1291,41 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(otherBranchPayments.status).toBe(200);
     expect(otherBranchPayments.body.data).toHaveLength(0);
 
+    // Verify payments listing with pagination and orderId filter
+    const paginatedPaymentsRes = await request(app)
+      .get(`/api/v1/payments?orderId=${order.id}&page=1&limit=10`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(paginatedPaymentsRes.status).toBe(200);
+    expect(paginatedPaymentsRes.body.data).toHaveLength(4);
+    expect(paginatedPaymentsRes.body.pagination).toBeDefined();
+    expect(paginatedPaymentsRes.body.pagination.page).toBe(1);
+    expect(paginatedPaymentsRes.body.pagination.limit).toBe(10);
+    expect(paginatedPaymentsRes.body.pagination.total).toBe(4);
+
+    // Verify all 12 schema fields of payments
+    const verifiedPayment = paginatedPaymentsRes.body.data.find((p: any) => p.paymentMethod === 'ABA');
+    expect(verifiedPayment).toBeDefined();
+    expect(verifiedPayment.id).toBeDefined();
+    expect(verifiedPayment.tenantId).toBeDefined();
+    expect(verifiedPayment.orderId).toBe(order.id);
+    expect(verifiedPayment.paymentMethod).toBe('ABA');
+    expect(Number(verifiedPayment.amount)).toBe(5);
+    expect(verifiedPayment.currencyCode).toBe('USD');
+    expect(Number(verifiedPayment.exchangeRate)).toBeGreaterThanOrEqual(1);
+    expect(Number(verifiedPayment.amountInOrderCurrency)).toBe(5);
+    expect(verifiedPayment.referenceNumber).toBe('ABA-9901');
+    expect(verifiedPayment.status).toBe('COMPLETED');
+    expect(verifiedPayment.paidAt).toBeDefined();
+    expect(verifiedPayment.createdAt).toBeDefined();
+
+    // Verify order-specific payments endpoint
+    const orderPaymentsRes = await request(app)
+      .get(`/api/v1/orders/${order.id}/payments`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(orderPaymentsRes.status).toBe(200);
+    expect(orderPaymentsRes.body.data).toHaveLength(4);
+    expect(orderPaymentsRes.body.pagination).toBeDefined();
+
     // 4. Refund tracking via ABA + return filtering + order detail saleReturns linkage
     const retRes = await request(app)
       .post('/api/v1/returns')
