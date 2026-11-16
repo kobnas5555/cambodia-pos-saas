@@ -1,4 +1,8 @@
-import { createPurchasePaymentSchema, createPurchaseSchema } from '@cambodia-pos/shared';
+import {
+  createPurchasePaymentSchema,
+  createPurchaseSchema,
+  listPurchasesQuerySchema,
+} from '@cambodia-pos/shared';
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../common/middleware/authenticate';
@@ -12,7 +16,12 @@ const idParam = z.object({ purchaseId: z.string().uuid() });
 
 router.use(authenticate, requireTenantContext);
 
-router.get('/', requirePermission('purchases.view'), controller.list);
+router.get(
+  '/',
+  requirePermission('purchases.view'),
+  validate({ query: listPurchasesQuerySchema }),
+  controller.list,
+);
 router.get('/payments', requirePermission('purchases.view'), controller.listPayments);
 router.post('/', requirePermission('purchases.create'), validate({ body: createPurchaseSchema }), controller.create);
 router.get('/:purchaseId', requirePermission('purchases.view'), validate({ params: idParam }), controller.getOne);

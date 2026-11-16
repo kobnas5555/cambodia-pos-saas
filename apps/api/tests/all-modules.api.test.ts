@@ -1782,7 +1782,29 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(paidListRes.status).toBe(200);
     expect(paidListRes.body.data).toHaveLength(1);
-    expect(paidListRes.body.data[0].id).toBe(poId);
+    expect(paidListRes.body.pagination).toBeDefined();
+    expect(paidListRes.body.pagination.total).toBeGreaterThanOrEqual(1);
+    expect(paidListRes.body.pagination.page).toBe(1);
+
+    const purchaseRecord = paidListRes.body.data[0];
+    expect(purchaseRecord.id).toBe(poId);
+    expect(purchaseRecord.tenantId).toBeDefined();
+    expect(purchaseRecord.branchId).toBe(branchId);
+    expect(purchaseRecord.supplierId).toBe(activeSupId);
+    expect(purchaseRecord.purchaseNumber).toMatch(/^PUR-/);
+    expect(purchaseRecord.employeeId).toBeDefined();
+    expect(purchaseRecord.subtotal).toBe('45.00');
+    expect(purchaseRecord.discountAmount).toBe('5.00');
+    expect(purchaseRecord.taxAmount).toBe('2.00');
+    expect(purchaseRecord.totalAmount).toBe('42.00');
+    expect(purchaseRecord.paidAmount).toBe('42.00');
+    expect(purchaseRecord.currencyCode).toBe('USD');
+    expect(purchaseRecord.exchangeRate).toBeDefined();
+    expect(purchaseRecord.status).toBe('RECEIVED');
+    expect(purchaseRecord.purchaseDate).toBeDefined();
+    expect(purchaseRecord.receivedAt).toBeDefined();
+    expect(purchaseRecord.createdAt).toBeDefined();
+    expect(purchaseRecord.updatedAt).toBeDefined();
 
     // 5. Create purchase with receiveImmediately: true + partial initial payment -> RECEIVED & PARTIAL immediately, stock 15 -> 20
     const instantRes = await request(app)
@@ -1817,6 +1839,8 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(supPaymentsRes.status).toBe(200);
     expect(supPaymentsRes.body.data.length).toBeGreaterThanOrEqual(1);
     expect(supPaymentsRes.body.data[0].paymentMethod).toBe('ABA');
+    expect(supPaymentsRes.body.pagination).toBeDefined();
+    expect(supPaymentsRes.body.pagination.total).toBeGreaterThanOrEqual(1);
   });
 
   it('FR-09: handles viewing stock balances, tracking increases/decreases, manual adjustments with reasons, movement history filters, and unauthorized change prevention', async () => {

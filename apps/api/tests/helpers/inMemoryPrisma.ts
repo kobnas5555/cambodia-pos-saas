@@ -1607,12 +1607,12 @@ export function createInMemoryPrisma() {
         const found = store.purchases.find((p) => matchesWhere(p, where));
         return found ? enrichPurchase(found, include) : null;
       },
-      findMany: async ({ where, include, orderBy, take }: { where?: Row; include?: Row; orderBy?: any; take?: number } = {}) =>
+      findMany: async ({ where, include, orderBy, skip, take }: { where?: Row; include?: Row; orderBy?: any; skip?: number; take?: number } = {}) =>
         applyOrderBy(
           store.purchases.filter((p) => matchesWhere(p, where)),
           orderBy,
         )
-          .slice(0, take ?? 200)
+          .slice(skip ?? 0, (skip ?? 0) + (take ?? 200))
           .map((p) => enrichPurchase(p, include)),
       create: async ({ data, include }: { data: Row; include?: Row }) => {
         const now = new Date();
@@ -1668,27 +1668,37 @@ export function createInMemoryPrisma() {
     },
 
     purchasePayment: {
-      findMany: async ({ where, include, orderBy, take }: { where?: Row; include?: Row; orderBy?: any; take?: number } = {}) =>
-        applyOrderBy(
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.purchasePayments.filter((pp) => matchesWhere(pp, where)).length,
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: { where?: Row; include?: Row; orderBy?: any; skip?: number; take?: number } = {}) => {
+        const sorted = applyOrderBy(
           store.purchasePayments.filter((pp) => matchesWhere(pp, where)),
           orderBy,
-        )
-          .slice(0, take ?? 200)
-          .map((pp) => {
-            const out: Row = { ...pp };
-            if (include?.purchase) {
-              const purchase = store.purchases.find((p) => p.id === pp.purchaseId);
-              out.purchase = purchase
-                ? {
-                    ...purchase,
-                    branch: store.branches.find((b) => b.id === purchase.branchId) ?? null,
-                    supplier: store.suppliers.find((s) => s.id === purchase.supplierId) ?? null,
-                    employee: store.employees.find((e) => e.id === purchase.employeeId) ?? null,
-                  }
-                : null;
-            }
-            return out;
-          }),
+        );
+        const start = skip ?? 0;
+        const page = sorted.slice(start, start + (take ?? 200));
+        return page.map((pp) => {
+          const out: Row = { ...pp };
+          if (include?.purchase) {
+            const purchase = store.purchases.find((p) => p.id === pp.purchaseId);
+            out.purchase = purchase
+              ? {
+                  ...purchase,
+                  branch: store.branches.find((b) => b.id === purchase.branchId) ?? null,
+                  supplier: store.suppliers.find((s) => s.id === purchase.supplierId) ?? null,
+                  employee: store.employees.find((e) => e.id === purchase.employeeId) ?? null,
+                }
+              : null;
+          }
+          return out;
+        });
+      },
       create: async ({ data }: { data: Row }) => {
         const now = new Date();
         const row = {

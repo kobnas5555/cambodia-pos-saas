@@ -7,6 +7,7 @@ import {
   type CreatePurchaseInput,
   type CreatePurchasePaymentInput,
   type CurrencyCode,
+  type ListPurchasesQueryInput,
 } from '@cambodia-pos/shared';
 import { AppError } from '../../common/errors/AppError';
 import { getTenantDefaultExchangeRate, resolveActorEmployeeId } from '../../common/utils/actor';
@@ -24,37 +25,56 @@ function computePaymentStatus(paidAmount: string, totalAmount: string): 'UNPAID'
 
 export async function listPurchases(
   tenantId: string,
-  filters: {
-    branchId?: string;
-    supplierId?: string;
-    status?: string;
-    paymentStatus?: string;
-    search?: string;
-  },
+  filters: Partial<ListPurchasesQueryInput> | string = {},
 ) {
+  const query = typeof filters === 'string' ? { search: filters } : filters;
+  const where: any = {
+    tenantId,
+    ...(query.branchId ? { branchId: query.branchId } : {}),
+    ...(query.supplierId ? { supplierId: query.supplierId } : {}),
+    ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+    ...(query.currencyCode ? { currencyCode: query.currencyCode } : {}),
+    ...(query.status && query.status !== 'ALL' ? { status: query.status } : {}),
+    ...(query.startDate || query.endDate
+      ? {
+          purchaseDate: {
+            ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+            ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
+          },
+        }
+      : {}),
+    ...(query.search
+      ? {
+          OR: [
+            { purchaseNumber: { contains: query.search, mode: 'insensitive' } },
+            { supplier: { name: { contains: query.search, mode: 'insensitive' } } },
+            { supplier: { contactPerson: { contains: query.search, mode: 'insensitive' } } },
+            { employee: { name: { contains: query.search, mode: 'insensitive' } } },
+            { branch: { name: { contains: query.search, mode: 'insensitive' } } },
+          ],
+        }
+      : {}),
+  };
+
+  const total = await prisma.purchase.count({ where });
+
+  const hasPagination = query.page !== undefined || query.limit !== undefined;
+  const page = query.page ? Math.max(1, Number(query.page)) : 1;
+  const limit = query.limit ? Math.min(100, Math.max(1, Number(query.limit))) : (hasPagination ? 50 : total || 50);
+  const skip = hasPagination ? (page - 1) * limit : undefined;
+  const take = hasPagination ? limit : undefined;
+
   const rows = await prisma.purchase.findMany({
-    where: {
-      tenantId,
-      ...(filters.branchId ? { branchId: filters.branchId } : {}),
-      ...(filters.supplierId ? { supplierId: filters.supplierId } : {}),
-      ...(filters.status ? { status: filters.status } : {}),
-      ...(filters.search
-        ? {
-            OR: [
-              { purchaseNumber: { contains: filters.search, mode: 'insensitive' } },
-              { supplier: { name: { contains: filters.search, mode: 'insensitive' } } },
-            ],
-          }
-        : {}),
-    },
+    where,
     include: {
       branch: { select: { id: true, name: true, branchCode: true } },
-      supplier: { select: { id: true, name: true } },
-      employee: { select: { id: true, name: true } },
+      supplier: { select: { id: true, name: true, contactPerson: true, phone: true } },
+      employee: { select: { id: true, name: true, employeeCode: true } },
       _count: { select: { purchaseItems: true, purchasePayments: true } },
     },
-    orderBy: { createdAt: 'desc' },
-    take: 100,
+    orderBy: { purchaseDate: 'desc' },
+    ...(skip !== undefined ? { skip } : {}),
+    ...(take !== undefined ? { take } : {}),
   });
 
   const enriched = rows.map((p) => ({
@@ -62,10 +82,20 @@ export async function listPurchases(
     paymentStatus: computePaymentStatus(p.paidAmount.toString(), p.totalAmount.toString()),
   }));
 
-  if (filters.paymentStatus) {
-    return enriched.filter((p) => p.paymentStatus === filters.paymentStatus);
-  }
-  return enriched;
+  const filtered =
+    query.paymentStatus && query.paymentStatus !== 'ALL'
+      ? enriched.filter((p) => p.paymentStatus === query.paymentStatus)
+      : enriched;
+
+  const totalPages = Math.ceil(total / (limit || 1)) || 1;
+
+  return Object.assign(filtered, {
+    items: filtered,
+    total,
+    page,
+    limit,
+    totalPages,
+  });
 }
 
 export async function listPurchasePayments(
@@ -74,30 +104,43 @@ export async function listPurchasePayments(
     branchId?: string;
     supplierId?: string;
     paymentMethod?: string;
+    currencyCode?: string;
     search?: string;
+    page?: number | string;
+    limit?: number | string;
   } = {},
 ) {
-  return prisma.purchasePayment.findMany({
-    where: {
-      tenantId,
-      ...(filters.paymentMethod ? { paymentMethod: filters.paymentMethod } : {}),
-      ...(filters.branchId || filters.supplierId || filters.search
-        ? {
-            purchase: {
-              ...(filters.branchId ? { branchId: filters.branchId } : {}),
-              ...(filters.supplierId ? { supplierId: filters.supplierId } : {}),
-              ...(filters.search
-                ? {
-                    OR: [
-                      { purchaseNumber: { contains: filters.search, mode: 'insensitive' } },
-                      { supplier: { name: { contains: filters.search, mode: 'insensitive' } } },
-                    ],
-                  }
-                : {}),
-            },
-          }
-        : {}),
-    },
+  const where: any = {
+    tenantId,
+    ...(filters.paymentMethod && filters.paymentMethod !== 'ALL' ? { paymentMethod: filters.paymentMethod } : {}),
+    ...(filters.currencyCode && filters.currencyCode !== 'ALL' ? { currencyCode: filters.currencyCode } : {}),
+    ...(filters.branchId || filters.supplierId || filters.search
+      ? {
+          purchase: {
+            ...(filters.branchId ? { branchId: filters.branchId } : {}),
+            ...(filters.supplierId ? { supplierId: filters.supplierId } : {}),
+            ...(filters.search
+              ? {
+                  OR: [
+                    { purchaseNumber: { contains: filters.search, mode: 'insensitive' } },
+                    { supplier: { name: { contains: filters.search, mode: 'insensitive' } } },
+                  ],
+                }
+              : {}),
+          },
+        }
+      : {}),
+  };
+
+  const total = await prisma.purchasePayment.count({ where });
+  const hasPagination = filters.page !== undefined || filters.limit !== undefined;
+  const page = filters.page ? Math.max(1, Number(filters.page)) : 1;
+  const limit = filters.limit ? Math.min(100, Math.max(1, Number(filters.limit))) : (hasPagination ? 50 : total || 50);
+  const skip = hasPagination ? (page - 1) * limit : undefined;
+  const take = hasPagination ? limit : undefined;
+
+  const payments = await prisma.purchasePayment.findMany({
+    where,
     include: {
       purchase: {
         select: {
@@ -111,7 +154,18 @@ export async function listPurchasePayments(
       },
     },
     orderBy: { paidAt: 'desc' },
-    take: 100,
+    ...(skip !== undefined ? { skip } : {}),
+    ...(take !== undefined ? { take } : {}),
+  });
+
+  const totalPages = Math.ceil(total / (limit || 1)) || 1;
+
+  return Object.assign(payments, {
+    items: payments,
+    total,
+    page,
+    limit,
+    totalPages,
   });
 }
 

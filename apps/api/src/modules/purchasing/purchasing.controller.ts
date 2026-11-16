@@ -9,25 +9,31 @@ const actor = (req: Request) => ({
 });
 
 export const list = asyncHandler(async (req: Request, res: Response) => {
-  const data = await purchasingService.listPurchases(req.tenant!.tenantId, {
-    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
-    supplierId: typeof req.query.supplierId === 'string' ? req.query.supplierId : undefined,
-    status: typeof req.query.status === 'string' ? req.query.status : undefined,
-    paymentStatus:
-      typeof req.query.paymentStatus === 'string' ? req.query.paymentStatus : undefined,
-    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+  const result = await purchasingService.listPurchases(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data: result.items ?? result,
+    pagination: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+    },
   });
-  res.json({ success: true, data });
 });
 
 export const listPayments = asyncHandler(async (req: Request, res: Response) => {
-  const data = await purchasingService.listPurchasePayments(req.tenant!.tenantId, {
-    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
-    supplierId: typeof req.query.supplierId === 'string' ? req.query.supplierId : undefined,
-    paymentMethod: typeof req.query.paymentMethod === 'string' ? req.query.paymentMethod : undefined,
-    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+  const result = await purchasingService.listPurchasePayments(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data: result.items ?? result,
+    pagination: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+    },
   });
-  res.json({ success: true, data });
 });
 
 export const getOne = asyncHandler(async (req: Request, res: Response) => {

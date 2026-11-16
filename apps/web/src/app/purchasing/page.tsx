@@ -11,8 +11,12 @@ import {
 import {
   AlertTriangle,
   ArrowDownRight,
+  Building2,
+  Calendar,
+  Check,
   CheckCircle2,
   Clock,
+  Copy,
   CreditCard,
   DollarSign,
   Eye,
@@ -25,10 +29,12 @@ import {
   ShoppingCart,
   Trash2,
   Truck,
+  User,
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppShell } from '@/components/AppShell';
+import { DataTablePagination } from '@/components/DataTablePagination';
 import { useAuth } from '@/contexts/AuthContext';
 import { useI18n } from '@/contexts/I18nContext';
 import { apiRequest, ApiClientError } from '@/lib/api';
@@ -38,20 +44,27 @@ type TabKey = 'orders' | 'payments';
 
 interface PurchaseRow {
   id: string;
+  tenantId?: string;
+  branchId?: string;
+  supplierId?: string;
   purchaseNumber: string;
+  employeeId?: string;
   subtotal: string;
   discountAmount: string;
   taxAmount: string;
   totalAmount: string;
   paidAmount: string;
   currencyCode: CurrencyCode;
+  exchangeRate?: string;
   status: string;
   paymentStatus: PaymentStatus;
   purchaseDate: string;
   receivedAt: string | null;
-  branch: { id: string; name: string };
-  supplier: { id: string; name: string };
-  employee?: { id: string; name: string };
+  createdAt?: string;
+  updatedAt?: string;
+  branch: { id: string; name: string; branchCode?: string };
+  supplier: { id: string; name: string; contactPerson?: string | null; phone?: string | null };
+  employee?: { id: string; name: string; employeeCode?: string };
 }
 
 interface PurchasePaymentRow {
@@ -135,9 +148,26 @@ export default function PurchasingPage() {
   const [paymentStatusFilter, setPaymentStatusFilter] = useState('ALL');
   const [supplierFilter, setSupplierFilter] = useState('ALL');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState('ALL');
+  const [branchFilter, setBranchFilter] = useState('ALL');
+  const [currencyFilter, setCurrencyFilter] = useState('ALL');
+  const [startDateFilter, setStartDateFilter] = useState('');
+  const [endDateFilter, setEndDateFilter] = useState('');
+
+  // Pagination & Copy
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [purchasePage, setPurchasePage] = useState(1);
+  const [purchasePageSize, setPurchasePageSize] = useState(10);
+  const [paymentPage, setPaymentPage] = useState(1);
+  const [paymentPageSize, setPaymentPageSize] = useState(10);
 
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+
+  const handleCopyId = (id: string) => {
+    void navigator.clipboard?.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   // Details Modal
   const [selectedPurchase, setSelectedPurchase] = useState<PurchaseDetail | null>(null);
@@ -174,14 +204,20 @@ export default function PurchasingPage() {
     try {
       const qs = new URLSearchParams();
       if (activeBranch) qs.set('branchId', activeBranch.id);
+      else if (branchFilter !== 'ALL') qs.set('branchId', branchFilter);
       if (statusFilter !== 'ALL') qs.set('status', statusFilter);
       if (paymentStatusFilter !== 'ALL') qs.set('paymentStatus', paymentStatusFilter);
       if (supplierFilter !== 'ALL') qs.set('supplierId', supplierFilter);
+      if (currencyFilter !== 'ALL') qs.set('currencyCode', currencyFilter);
+      if (startDateFilter) qs.set('startDate', startDateFilter);
+      if (endDateFilter) qs.set('endDate', endDateFilter);
       if (search.trim()) qs.set('search', search.trim());
 
       const payQs = new URLSearchParams();
       if (activeBranch) payQs.set('branchId', activeBranch.id);
+      else if (branchFilter !== 'ALL') payQs.set('branchId', branchFilter);
       if (paymentMethodFilter !== 'ALL') payQs.set('paymentMethod', paymentMethodFilter);
+      if (currencyFilter !== 'ALL') payQs.set('currencyCode', currencyFilter);
       if (search.trim()) payQs.set('search', search.trim());
 
       const [purs, payList, sups, prods] = await Promise.all([
@@ -199,7 +235,19 @@ export default function PurchasingPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeTenant, activeBranch, statusFilter, paymentStatusFilter, supplierFilter, paymentMethodFilter, search]);
+  }, [
+    activeTenant,
+    activeBranch,
+    branchFilter,
+    statusFilter,
+    paymentStatusFilter,
+    supplierFilter,
+    currencyFilter,
+    startDateFilter,
+    endDateFilter,
+    paymentMethodFilter,
+    search,
+  ]);
 
   useEffect(() => {
     void loadAll().catch(() => {});
@@ -361,24 +409,62 @@ export default function PurchasingPage() {
 
   const q = search.trim().toLowerCase();
 
-  const filteredPurchases = purchases.filter((p) => {
-    if (!q) return true;
-    return (
-      p.purchaseNumber.toLowerCase().includes(q) ||
-      p.supplier.name.toLowerCase().includes(q) ||
-      p.branch.name.toLowerCase().includes(q)
-    );
-  });
+  const filteredPurchases = useMemo(() => {
+    return purchases.filter((p) => {
+      if (branchFilter !== 'ALL' && p.branchId && p.branchId !== branchFilter) return false;
+      if (currencyFilter !== 'ALL' && p.currencyCode !== currencyFilter) return false;
+      if (statusFilter !== 'ALL' && p.status !== statusFilter) return false;
+      if (paymentStatusFilter !== 'ALL' && p.paymentStatus !== paymentStatusFilter) return false;
+      if (supplierFilter !== 'ALL' && p.supplierId && p.supplierId !== supplierFilter) return false;
+      if (startDateFilter && new Date(p.purchaseDate) < new Date(startDateFilter)) return false;
+      if (endDateFilter && new Date(p.purchaseDate) > new Date(endDateFilter + 'T23:59:59.999Z')) return false;
 
-  const filteredPayments = payments.filter((pay) => {
-    if (!q) return true;
-    return (
-      (pay.purchase?.purchaseNumber ?? '').toLowerCase().includes(q) ||
-      (pay.purchase?.supplier?.name ?? '').toLowerCase().includes(q) ||
-      (pay.referenceNumber ?? '').toLowerCase().includes(q) ||
-      pay.paymentMethod.toLowerCase().includes(q)
-    );
-  });
+      if (!q) return true;
+      return (
+        p.purchaseNumber.toLowerCase().includes(q) ||
+        p.id.toLowerCase().includes(q) ||
+        p.supplier.name.toLowerCase().includes(q) ||
+        (p.supplier.contactPerson ?? '').toLowerCase().includes(q) ||
+        p.branch.name.toLowerCase().includes(q) ||
+        (p.employee?.name ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [
+    purchases,
+    branchFilter,
+    currencyFilter,
+    statusFilter,
+    paymentStatusFilter,
+    supplierFilter,
+    startDateFilter,
+    endDateFilter,
+    q,
+  ]);
+
+  const paginatedPurchases = useMemo(() => {
+    const start = (purchasePage - 1) * purchasePageSize;
+    return filteredPurchases.slice(start, start + purchasePageSize);
+  }, [filteredPurchases, purchasePage, purchasePageSize]);
+
+  const filteredPayments = useMemo(() => {
+    return payments.filter((pay) => {
+      if (paymentMethodFilter !== 'ALL' && pay.paymentMethod !== paymentMethodFilter) return false;
+      if (currencyFilter !== 'ALL' && pay.currencyCode !== currencyFilter) return false;
+      if (!q) return true;
+      return (
+        (pay.purchase?.purchaseNumber ?? '').toLowerCase().includes(q) ||
+        (pay.purchase?.supplier?.name ?? '').toLowerCase().includes(q) ||
+        (pay.referenceNumber ?? '').toLowerCase().includes(q) ||
+        pay.paymentMethod.toLowerCase().includes(q) ||
+        pay.id.toLowerCase().includes(q)
+      );
+    });
+  }, [payments, paymentMethodFilter, currencyFilter, q]);
+
+  const paginatedPayments = useMemo(() => {
+    const start = (paymentPage - 1) * paymentPageSize;
+    return filteredPayments.slice(start, start + paymentPageSize);
+  }, [filteredPayments, paymentPage, paymentPageSize]);
 
   return (
     <AppShell>
@@ -532,11 +618,33 @@ export default function PurchasingPage() {
           <div className="flex flex-wrap items-center gap-2">
             {tab === 'orders' ? (
               <>
+                {activeTenant?.branches && activeTenant.branches.length > 1 && (
+                  <select
+                    aria-label="Filter by branch"
+                    value={branchFilter}
+                    onChange={(e) => {
+                      setBranchFilter(e.target.value);
+                      setPurchasePage(1);
+                    }}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="ALL">All Branches</option>
+                    {activeTenant.branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
                 <select
                   aria-label="Filter by supplier"
                   value={supplierFilter}
-                  onChange={(e) => setSupplierFilter(e.target.value)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  onChange={(e) => {
+                    setSupplierFilter(e.target.value);
+                    setPurchasePage(1);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
                 >
                   <option value="ALL">{t.purchasing.allSuppliers}</option>
                   {suppliers.map((s) => (
@@ -549,8 +657,11 @@ export default function PurchasingPage() {
                 <select
                   aria-label="Filter by receipt status"
                   value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  onChange={(e) => {
+                    setStatusFilter(e.target.value);
+                    setPurchasePage(1);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
                 >
                   <option value="ALL">{t.purchasing.allReceiptStatus}</option>
                   <option value="ORDERED">{t.purchasing.ordered}</option>
@@ -560,42 +671,175 @@ export default function PurchasingPage() {
                 <select
                   aria-label="Filter by payment status"
                   value={paymentStatusFilter}
-                  onChange={(e) => setPaymentStatusFilter(e.target.value)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  onChange={(e) => {
+                    setPaymentStatusFilter(e.target.value);
+                    setPurchasePage(1);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
                 >
                   <option value="ALL">{t.purchasing.allPaymentStatus}</option>
                   <option value="UNPAID">{t.purchasing.unpaid}</option>
                   <option value="PARTIAL">{t.purchasing.partial}</option>
                   <option value="PAID">{t.purchasing.paid}</option>
                 </select>
+
+                <select
+                  aria-label="Filter by currency"
+                  value={currencyFilter}
+                  onChange={(e) => {
+                    setCurrencyFilter(e.target.value);
+                    setPurchasePage(1);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="ALL">All Currencies</option>
+                  {SUPPORTED_CURRENCIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 text-xs shadow-sm">
+                  <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    type="date"
+                    value={startDateFilter}
+                    onChange={(e) => {
+                      setStartDateFilter(e.target.value);
+                      setPurchasePage(1);
+                    }}
+                    className="bg-transparent text-xs text-slate-700 focus:outline-none"
+                    aria-label="Start date filter"
+                  />
+                  <span className="text-slate-400">&ndash;</span>
+                  <input
+                    type="date"
+                    value={endDateFilter}
+                    onChange={(e) => {
+                      setEndDateFilter(e.target.value);
+                      setPurchasePage(1);
+                    }}
+                    className="bg-transparent text-xs text-slate-700 focus:outline-none"
+                    aria-label="End date filter"
+                  />
+                </div>
               </>
             ) : (
-              <select
-                aria-label="Filter by payment method"
-                value={paymentMethodFilter}
-                onChange={(e) => setPaymentMethodFilter(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
-              >
-                <option value="ALL">All Payment Methods</option>
-                {PAYMENT_METHODS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+              <>
+                {activeTenant?.branches && activeTenant.branches.length > 1 && (
+                  <select
+                    aria-label="Filter by branch"
+                    value={branchFilter}
+                    onChange={(e) => {
+                      setBranchFilter(e.target.value);
+                      setPaymentPage(1);
+                    }}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="ALL">All Branches</option>
+                    {activeTenant.branches.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+
+                <select
+                  aria-label="Filter by payment method"
+                  value={paymentMethodFilter}
+                  onChange={(e) => {
+                    setPaymentMethodFilter(e.target.value);
+                    setPaymentPage(1);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="ALL">All Payment Methods</option>
+                  {PAYMENT_METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  aria-label="Filter by currency"
+                  value={currencyFilter}
+                  onChange={(e) => {
+                    setCurrencyFilter(e.target.value);
+                    setPaymentPage(1);
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="ALL">All Currencies</option>
+                  {SUPPORTED_CURRENCIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </>
             )}
 
             <div className="relative w-64">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <input
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPurchasePage(1);
+                  setPaymentPage(1);
+                }}
                 placeholder={
                   tab === 'orders' ? 'Search Purchase # or supplier...' : 'Search ref, supplier, method...'
                 }
-                className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-9 pr-3 text-sm shadow-sm focus:border-emerald-500 focus:outline-none"
+                className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-9 pr-7 text-xs shadow-sm focus:border-emerald-500 focus:outline-none"
               />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch('');
+                    setPurchasePage(1);
+                    setPaymentPage(1);
+                  }}
+                  className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
+
+            {(branchFilter !== 'ALL' ||
+              currencyFilter !== 'ALL' ||
+              statusFilter !== 'ALL' ||
+              paymentStatusFilter !== 'ALL' ||
+              supplierFilter !== 'ALL' ||
+              paymentMethodFilter !== 'ALL' ||
+              startDateFilter ||
+              endDateFilter ||
+              search) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setBranchFilter('ALL');
+                  setCurrencyFilter('ALL');
+                  setStatusFilter('ALL');
+                  setPaymentStatusFilter('ALL');
+                  setSupplierFilter('ALL');
+                  setPaymentMethodFilter('ALL');
+                  setStartDateFilter('');
+                  setEndDateFilter('');
+                  setSearch('');
+                  setPurchasePage(1);
+                  setPaymentPage(1);
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700 transition shadow-sm"
+              >
+                Clear
+              </button>
+            )}
           </div>
         </div>
 
@@ -614,189 +858,353 @@ export default function PurchasingPage() {
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
             {loading ? (
-              <p className="p-8 text-center text-sm text-slate-500">{t.common.loading}</p>
+              <div className="p-12 text-center text-sm text-slate-500">
+                <RefreshCw className="mx-auto h-6 w-6 animate-spin text-emerald-600 mb-2" />
+                {t.common.loading}
+              </div>
             ) : tab === 'orders' ? (
-              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">{t.purchasing.purchaseNumber}</th>
-                    <th className="px-4 py-3">{t.common.date}</th>
-                    <th className="px-4 py-3">{t.purchasing.supplier}</th>
-                    <th className="px-4 py-3">Branch</th>
-                    <th className="px-4 py-3">{t.purchasing.totalCost}</th>
-                    <th className="px-4 py-3">Paid / Due</th>
-                    <th className="px-4 py-3">{t.purchasing.paymentStatus}</th>
-                    <th className="px-4 py-3">{t.purchasing.receiptStatus}</th>
-                    <th className="px-4 py-3 text-right">{t.common.actions}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredPurchases.length === 0 ? (
+              <>
+                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                  <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
-                        {t.common.noData}
-                      </td>
+                      <th className="px-4 py-3.5">Purchase &amp; ID</th>
+                      <th className="px-4 py-3.5">{t.common.date} &amp; Receipt</th>
+                      <th className="px-4 py-3.5">{t.purchasing.supplier} &amp; Branch</th>
+                      <th className="px-4 py-3.5">Purchaser</th>
+                      <th className="px-4 py-3.5">Cost Breakdown</th>
+                      <th className="px-4 py-3.5">{t.purchasing.totalCost} &amp; Rate</th>
+                      <th className="px-4 py-3.5">Paid / Due</th>
+                      <th className="px-4 py-3.5">{t.purchasing.paymentStatus}</th>
+                      <th className="px-4 py-3.5">{t.purchasing.receiptStatus}</th>
+                      <th className="px-4 py-3.5 text-right">{t.common.actions}</th>
                     </tr>
-                  ) : (
-                    filteredPurchases.map((p) => {
-                      const due = subDecimals(p.totalAmount, p.paidAmount, 2);
-                      return (
-                        <tr key={p.id} className="hover:bg-slate-50/50">
-                          <td className="px-4 py-3">
-                            <button
-                              type="button"
-                              onClick={() => void openDetailModal(p.id)}
-                              className="font-mono text-xs font-bold text-emerald-800 hover:underline"
-                            >
-                              {p.purchaseNumber}
-                            </button>
-                          </td>
-                          <td className="px-4 py-3 text-xs text-slate-500">
-                            {new Date(p.purchaseDate).toLocaleDateString()}
-                          </td>
-                          <td className="px-4 py-3 font-semibold text-slate-900">{p.supplier.name}</td>
-                          <td className="px-4 py-3 text-slate-600">{p.branch.name}</td>
-                          <td className="px-4 py-3 font-bold text-slate-900">
-                            {formatCurrency(p.totalAmount, p.currencyCode)}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-slate-600">
-                            <div>Paid: {formatCurrency(p.paidAmount, p.currencyCode)}</div>
-                            {Number(due) > 0 ? (
-                              <div className="font-semibold text-rose-600">
-                                Due: {formatCurrency(due, p.currencyCode)}
-                              </div>
-                            ) : (
-                              <div className="text-[11px] text-emerald-700">Settled</div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${paymentStatusBadgeClass(
-                                p.paymentStatus,
-                              )}`}
-                            >
-                              {p.paymentStatus}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                                p.status === 'RECEIVED'
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                  : 'bg-amber-50 text-amber-700'
-                              }`}
-                            >
-                              {p.status === 'RECEIVED' ? (
-                                <CheckCircle2 className="h-3 w-3" />
-                              ) : (
-                                <Clock className="h-3 w-3" />
-                              )}
-                              {p.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <div className="inline-flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={() => void openDetailModal(p.id)}
-                                className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                              >
-                                <Eye className="h-3 w-3" />
-                                {t.purchasing.purchaseDetails}
-                              </button>
-                              {p.status !== 'RECEIVED' && canCreate && (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleReceive(p.id)}
-                                  className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
-                                >
-                                  <CheckCircle2 className="h-3 w-3" />
-                                  {t.purchasing.receiveStock}
-                                </button>
-                              )}
-                              {Number(due) > 0 && canPay && (
-                                <button
-                                  type="button"
-                                  onClick={() => openPaymentModal(p)}
-                                  className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                                >
-                                  <CreditCard className="h-3 w-3" />
-                                  {t.purchasing.recordPayment}
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            ) : (
-              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">{t.common.date}</th>
-                    <th className="px-4 py-3">{t.purchasing.purchaseNumber}</th>
-                    <th className="px-4 py-3">{t.purchasing.supplier}</th>
-                    <th className="px-4 py-3">Branch</th>
-                    <th className="px-4 py-3">Payment Method</th>
-                    <th className="px-4 py-3">Reference #</th>
-                    <th className="px-4 py-3">{t.purchasing.paidAmount}</th>
-                    <th className="px-4 py-3">{t.common.status}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredPayments.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
-                        {t.common.noData}
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredPayments.map((pay) => (
-                      <tr key={pay.id} className="hover:bg-slate-50/50">
-                        <td className="px-4 py-3 text-xs text-slate-600">
-                          {new Date(pay.paidAt).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3">
-                          {pay.purchase ? (
-                            <button
-                              type="button"
-                              onClick={() => void openDetailModal(pay.purchase!.id)}
-                              className="font-mono text-xs font-bold text-emerald-800 hover:underline"
-                            >
-                              {pay.purchase.purchaseNumber}
-                            </button>
-                          ) : (
-                            <span className="font-mono text-xs text-slate-500">—</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 font-semibold text-slate-900">
-                          {pay.purchase?.supplier?.name ?? '—'}
-                        </td>
-                        <td className="px-4 py-3 text-slate-600">{pay.purchase?.branch?.name ?? '—'}</td>
-                        <td className="px-4 py-3">
-                          <span className="rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-800">
-                            {pay.paymentMethod}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                          {pay.referenceNumber || '—'}
-                        </td>
-                        <td className="px-4 py-3 font-bold text-emerald-700">
-                          {formatCurrency(pay.amount, pay.currencyCode)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                            {pay.status}
-                          </span>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredPurchases.length === 0 ? (
+                      <tr>
+                        <td colSpan={10} className="px-4 py-12 text-center text-slate-500">
+                          <Package className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+                          <p className="text-sm font-medium text-slate-900">{t.common.noData}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {search || statusFilter !== 'ALL' || paymentStatusFilter !== 'ALL'
+                              ? 'No purchase orders matched your filter criteria.'
+                              : 'No purchase orders recorded yet.'}
+                          </p>
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      paginatedPurchases.map((p) => {
+                        const due = subDecimals(p.totalAmount, p.paidAmount, 2);
+                        const isUsd = p.currencyCode === 'USD';
+                        const rateNum = Number(p.exchangeRate || '4100') || 4100;
+                        const counterpart = isUsd
+                          ? (Number(p.totalAmount) * rateNum).toFixed(0)
+                          : (Number(p.totalAmount) / rateNum).toFixed(2);
+                        const counterpartCur: CurrencyCode = isUsd ? 'KHR' : 'USD';
+
+                        return (
+                          <tr key={p.id} className="hover:bg-slate-50/50 transition">
+                            {/* Purchase # & UUID */}
+                            <td className="px-4 py-3">
+                              <div className="space-y-0.5">
+                                <button
+                                  type="button"
+                                  onClick={() => void openDetailModal(p.id)}
+                                  className="font-mono text-xs font-bold text-emerald-800 hover:underline block text-left"
+                                >
+                                  {p.purchaseNumber}
+                                </button>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyId(p.id)}
+                                    title={`UUID: ${p.id}`}
+                                    className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded px-1 transition"
+                                  >
+                                    <span>{p.id.slice(0, 8)}...</span>
+                                    {copiedId === p.id ? (
+                                      <Check className="h-2.5 w-2.5 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="h-2.5 w-2.5" />
+                                    )}
+                                    {copiedId === p.id && (
+                                      <span className="text-[10px] text-emerald-600 font-semibold">
+                                        Copied
+                                      </span>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Date, Created At & Receipt */}
+                            <td className="px-4 py-3 text-xs space-y-0.5">
+                              <div className="font-medium text-slate-700">
+                                {new Date(p.purchaseDate).toLocaleDateString()}
+                              </div>
+                              {p.receivedAt ? (
+                                <div className="inline-flex items-center gap-1 text-[11px] text-emerald-700 font-medium">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  <span>Rec: {new Date(p.receivedAt).toLocaleDateString()}</span>
+                                </div>
+                              ) : (
+                                <div className="inline-flex items-center gap-1 text-[11px] text-amber-600 font-medium">
+                                  <Clock className="h-3 w-3" />
+                                  <span>Pending receipt</span>
+                                </div>
+                              )}
+                              <div className="text-[10px] text-slate-400">
+                                Created: {new Date(p.createdAt || p.purchaseDate).toLocaleDateString()}
+                              </div>
+                            </td>
+
+                            {/* Supplier & Branch */}
+                            <td className="px-4 py-3 text-xs space-y-0.5">
+                              <div className="font-semibold text-slate-900">{p.supplier.name}</div>
+                              {p.supplier.contactPerson && (
+                                <div className="text-[11px] text-slate-500">
+                                  {p.supplier.contactPerson}
+                                </div>
+                              )}
+                              <div className="flex items-center gap-1 text-[11px] text-slate-600">
+                                <Building2 className="h-3 w-3 text-slate-400" />
+                                <span>{p.branch.name}</span>
+                                {p.branch.branchCode && (
+                                  <span className="font-mono text-[10px] text-slate-400">
+                                    ({p.branch.branchCode})
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Purchaser / Employee */}
+                            <td className="px-4 py-3 text-xs">
+                              <div className="flex items-center gap-1 text-slate-700 font-medium">
+                                <User className="h-3 w-3 text-slate-400" />
+                                <span>{p.employee?.name ?? '—'}</span>
+                              </div>
+                              {p.employee?.employeeCode && (
+                                <span className="font-mono text-[10px] text-slate-400">
+                                  {p.employee.employeeCode}
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Cost Breakdown */}
+                            <td className="px-4 py-3 text-xs space-y-0.5">
+                              <div className="text-slate-600">
+                                Sub: {formatCurrency(p.subtotal, p.currencyCode)}
+                              </div>
+                              <div className="text-[11px] text-slate-500">
+                                {Number(p.discountAmount) > 0 && (
+                                  <span className="text-emerald-600 mr-1.5">
+                                    Disc: -{formatCurrency(p.discountAmount, p.currencyCode)}
+                                  </span>
+                                )}
+                                {Number(p.taxAmount) > 0 && (
+                                  <span className="text-slate-500">
+                                    Tax: +{formatCurrency(p.taxAmount, p.currencyCode)}
+                                  </span>
+                                )}
+                                {!(Number(p.discountAmount) > 0) && !(Number(p.taxAmount) > 0) && (
+                                  <span className="text-slate-400">No disc/tax</span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Total Cost & Counterpart / Rate */}
+                            <td className="px-4 py-3 text-xs space-y-0.5">
+                              <div className="font-bold text-slate-900 text-sm">
+                                {formatCurrency(p.totalAmount, p.currencyCode)}
+                              </div>
+                              <div className="text-[11px] text-slate-500">
+                                &asymp; {formatCurrency(counterpart, counterpartCur)}
+                              </div>
+                              <div className="inline-block rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
+                                1 USD = {Number(p.exchangeRate || 4100).toLocaleString()} KHR
+                              </div>
+                            </td>
+
+                            {/* Paid / Due */}
+                            <td className="px-4 py-3 text-xs space-y-0.5">
+                              <div className="text-slate-600">
+                                Paid: {formatCurrency(p.paidAmount, p.currencyCode)}
+                              </div>
+                              {Number(due) > 0 ? (
+                                <div className="font-semibold text-rose-600">
+                                  Due: {formatCurrency(due, p.currencyCode)}
+                                </div>
+                              ) : (
+                                <div className="text-[11px] font-semibold text-emerald-700">
+                                  Settled
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Payment Status */}
+                            <td className="px-4 py-3">
+                              <span
+                                className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${paymentStatusBadgeClass(
+                                  p.paymentStatus,
+                                )}`}
+                              >
+                                {p.paymentStatus}
+                              </span>
+                            </td>
+
+                            {/* Receipt Status */}
+                            <td className="px-4 py-3">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                  p.status === 'RECEIVED'
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : 'bg-amber-50 text-amber-700'
+                                }`}
+                              >
+                                {p.status === 'RECEIVED' ? (
+                                  <CheckCircle2 className="h-3 w-3" />
+                                ) : (
+                                  <Clock className="h-3 w-3" />
+                                )}
+                                {p.status}
+                              </span>
+                            </td>
+
+                            {/* Actions */}
+                            <td className="px-4 py-3 text-right">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => void openDetailModal(p.id)}
+                                  className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
+                                >
+                                  <Eye className="h-3 w-3" />
+                                  {t.purchasing.purchaseDetails}
+                                </button>
+                                {p.status !== 'RECEIVED' && canCreate && (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleReceive(p.id)}
+                                    className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition"
+                                  >
+                                    <CheckCircle2 className="h-3 w-3" />
+                                    {t.purchasing.receiveStock}
+                                  </button>
+                                )}
+                                {Number(due) > 0 && canPay && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openPaymentModal(p)}
+                                    className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition"
+                                  >
+                                    <CreditCard className="h-3 w-3" />
+                                    {t.purchasing.recordPayment}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                <DataTablePagination
+                  currentPage={purchasePage}
+                  pageSize={purchasePageSize}
+                  totalItems={filteredPurchases.length}
+                  onPageChange={setPurchasePage}
+                  onPageSizeChange={(sz) => {
+                    setPurchasePageSize(sz);
+                    setPurchasePage(1);
+                  }}
+                  itemName="purchases"
+                />
+              </>
+            ) : (
+              <>
+                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                  <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">{t.common.date}</th>
+                      <th className="px-4 py-3">{t.purchasing.purchaseNumber}</th>
+                      <th className="px-4 py-3">{t.purchasing.supplier}</th>
+                      <th className="px-4 py-3">Branch</th>
+                      <th className="px-4 py-3">Payment Method</th>
+                      <th className="px-4 py-3">Reference #</th>
+                      <th className="px-4 py-3">{t.purchasing.paidAmount}</th>
+                      <th className="px-4 py-3">{t.common.status}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredPayments.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-12 text-center text-slate-500">
+                          <CreditCard className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+                          <p className="text-sm font-medium text-slate-900">{t.common.noData}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {search || paymentMethodFilter !== 'ALL'
+                              ? 'No payments matched your filter criteria.'
+                              : 'No supplier payments recorded yet.'}
+                          </p>
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedPayments.map((pay) => (
+                        <tr key={pay.id} className="hover:bg-slate-50/50 transition">
+                          <td className="px-4 py-3 text-xs text-slate-600">
+                            {new Date(pay.paidAt).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3">
+                            {pay.purchase ? (
+                              <button
+                                type="button"
+                                onClick={() => void openDetailModal(pay.purchase!.id)}
+                                className="font-mono text-xs font-bold text-emerald-800 hover:underline"
+                              >
+                                {pay.purchase.purchaseNumber}
+                              </button>
+                            ) : (
+                              <span className="font-mono text-xs text-slate-500">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 font-semibold text-slate-900">
+                            {pay.purchase?.supplier?.name ?? '—'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600">{pay.purchase?.branch?.name ?? '—'}</td>
+                          <td className="px-4 py-3">
+                            <span className="rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-800">
+                              {pay.paymentMethod}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-mono text-xs text-slate-500">
+                            {pay.referenceNumber || '—'}
+                          </td>
+                          <td className="px-4 py-3 font-bold text-emerald-700">
+                            {formatCurrency(pay.amount, pay.currencyCode)}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                              {pay.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+                <DataTablePagination
+                  currentPage={paymentPage}
+                  pageSize={paymentPageSize}
+                  totalItems={filteredPayments.length}
+                  onPageChange={setPaymentPage}
+                  onPageSizeChange={(sz) => {
+                    setPaymentPageSize(sz);
+                    setPaymentPage(1);
+                  }}
+                  itemName="payments"
+                />
+              </>
             )}
           </div>
         </div>
@@ -812,16 +1220,35 @@ export default function PurchasingPage() {
                     <h2 className="font-mono text-lg font-bold text-slate-900">
                       {selectedPurchase.purchaseNumber}
                     </h2>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyId(selectedPurchase.id)}
+                      title={`UUID: ${selectedPurchase.id}`}
+                      className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded px-1 transition"
+                    >
+                      <span>{selectedPurchase.id.slice(0, 8)}...</span>
+                      {copiedId === selectedPurchase.id ? (
+                        <Check className="h-2.5 w-2.5 text-emerald-600" />
+                      ) : (
+                        <Copy className="h-2.5 w-2.5" />
+                      )}
+                      {copiedId === selectedPurchase.id && (
+                        <span className="text-[10px] text-emerald-600 font-semibold">Copied</span>
+                      )}
+                    </button>
                   </div>
                   <p className="mt-1 text-xs text-slate-600">
                     Supplier: <strong>{selectedPurchase.supplier.name}</strong>
                     {selectedPurchase.supplier.phone ? ` (${selectedPurchase.supplier.phone})` : ''} · Branch:{' '}
                     {selectedPurchase.branch.name}
+                    {selectedPurchase.employee && ` · Purchaser: ${selectedPurchase.employee.name}`}
                   </p>
                   <p className="text-[11px] text-slate-400">
                     Ordered: {new Date(selectedPurchase.purchaseDate).toLocaleString()}
                     {selectedPurchase.receivedAt &&
                       ` · Received: ${new Date(selectedPurchase.receivedAt).toLocaleString()}`}
+                    {selectedPurchase.createdAt &&
+                      ` · Created: ${new Date(selectedPurchase.createdAt).toLocaleString()}`}
                   </p>
                 </div>
                 <button

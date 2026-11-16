@@ -300,6 +300,22 @@ export const createPurchasePaymentSchema = z.object({
   referenceNumber: z.string().trim().max(120).optional().nullable(),
 });
 
+export const listPurchasesQuerySchema = z.object({
+  search: z.string().optional(),
+  branchId: z.string().uuid().optional(),
+  supplierId: z.string().uuid().optional(),
+  employeeId: z.string().uuid().optional(),
+  status: z.string().optional(),
+  paymentStatus: z.string().optional(),
+  currencyCode: z.enum(SUPPORTED_CURRENCIES).optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListPurchasesQueryInput = z.infer<typeof listPurchasesQuerySchema>;
+
 // ============================================================================
 // Phase 7: Stock Adjustments
 // ============================================================================
