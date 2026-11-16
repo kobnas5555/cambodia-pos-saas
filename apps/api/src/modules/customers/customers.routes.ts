@@ -1,4 +1,8 @@
-import { createCustomerSchema, updateCustomerSchema } from '@cambodia-pos/shared';
+import {
+  createCustomerSchema,
+  listCustomersQuerySchema,
+  updateCustomerSchema,
+} from '@cambodia-pos/shared';
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../common/middleware/authenticate';
@@ -12,7 +16,7 @@ const idParam = z.object({ customerId: z.string().uuid() });
 
 router.use(authenticate, requireTenantContext);
 
-router.get('/', requirePermission('customers.view'), controller.list);
+router.get('/', requirePermission('customers.view'), validate({ query: listCustomersQuerySchema }), controller.list);
 router.post('/', requirePermission('customers.manage'), validate({ body: createCustomerSchema }), controller.create);
 router.get('/:customerId', requirePermission('customers.view'), validate({ params: idParam }), controller.getOne);
 router.patch(
@@ -20,6 +24,12 @@ router.patch(
   requirePermission('customers.manage'),
   validate({ params: idParam, body: updateCustomerSchema }),
   controller.update,
+);
+router.delete(
+  '/:customerId',
+  requirePermission('customers.manage'),
+  validate({ params: idParam }),
+  controller.remove,
 );
 
 export const customersRouter = router;

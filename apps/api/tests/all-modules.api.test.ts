@@ -445,6 +445,62 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(updateCustRes.body.data.address).toBe('Phnom Penh, Cambodia');
     expect(updateCustRes.body.data.notes).toBe('VIP Gold Member');
 
+    // 5b. Customer uniqueness, duplicate rejection, pagination, and archival safeguard
+    // Duplicate customerCode within same tenant should be rejected
+    const dupCustCodeRes = await request(app)
+      .post('/api/v1/customers')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Duplicate Code Person', customerCode: custRes.body.data.customerCode });
+    expect(dupCustCodeRes.status).toBe(409);
+    expect(dupCustCodeRes.body.error.code).toBe('CUSTOMER_CODE_TAKEN');
+
+    // Create a secondary customer
+    const secondCustRes = await request(app)
+      .post('/api/v1/customers')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        name: 'Dara Chan',
+        customerCode: 'CUST-0002',
+        phone: '+85598765432',
+        email: 'dara@example.com',
+        address: 'Siem Reap, Cambodia',
+        notes: 'Silver member',
+      });
+    expect(secondCustRes.status).toBe(201);
+    const secondCustId = secondCustRes.body.data.id;
+
+    // Trying to update second customer's code to first customer's code should be rejected
+    const dupUpdateCustRes = await request(app)
+      .patch(`/api/v1/customers/${secondCustId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ customerCode: custRes.body.data.customerCode });
+    expect(dupUpdateCustRes.status).toBe(409);
+    expect(dupUpdateCustRes.body.error.code).toBe('CUSTOMER_CODE_TAKEN');
+
+    // Pagination and search on customers
+    const pagedCustomers = await request(app)
+      .get('/api/v1/customers?page=1&limit=1&status=ACTIVE')
+      .set('Authorization', `Bearer ${token}`);
+    expect(pagedCustomers.status).toBe(200);
+    expect(pagedCustomers.body.data).toHaveLength(1);
+    expect(pagedCustomers.body.pagination).toBeDefined();
+    expect(pagedCustomers.body.pagination.page).toBe(1);
+    expect(pagedCustomers.body.pagination.limit).toBe(1);
+    expect(pagedCustomers.body.pagination.total).toBe(2);
+
+    // Archival safeguard: customer with orders is soft-archived to INACTIVE
+    const archiveCustRes = await request(app)
+      .delete(`/api/v1/customers/${customerId}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(archiveCustRes.status).toBe(200);
+    expect(archiveCustRes.body.data.status).toBe('INACTIVE');
+
+    // Second customer has no orders, can be deleted permanently
+    const deleteCustRes = await request(app)
+      .delete(`/api/v1/customers/${secondCustId}?mode=permanent`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(deleteCustRes.status).toBe(200);
+
     // 6. Purchase workflow (create ORDERED -> receive -> record payment -> reject overpayment)
     const purRes = await request(app)
       .post('/api/v1/purchases')

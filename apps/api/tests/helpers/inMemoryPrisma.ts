@@ -1109,6 +1109,9 @@ export function createInMemoryPrisma() {
         const found = store.customers.find((c) => matchesWhere(c, where));
         if (!found) return null;
         const out: Row = { ...found };
+        if (include?._count) {
+          out._count = { orders: store.orders.filter((o) => o.customerId === found.id).length };
+        }
         if (include?.orders) {
           out.orders = applyOrderBy(
             store.orders.filter((o) => o.customerId === found.id),
@@ -1119,11 +1122,26 @@ export function createInMemoryPrisma() {
         }
         return out;
       },
-      findMany: async ({ where, include, orderBy }: { where?: Row; include?: Row; orderBy?: any } = {}) =>
-        applyOrderBy(
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: {
+        where?: Row;
+        include?: Row;
+        orderBy?: any;
+        skip?: number;
+        take?: number;
+      } = {}) => {
+        let list = applyOrderBy(
           store.customers.filter((c) => matchesWhere(c, where)),
           orderBy,
-        ).map((c) => ({
+        );
+        if (typeof skip === 'number') list = list.slice(skip);
+        if (typeof take === 'number') list = list.slice(0, take);
+        return list.map((c) => ({
           ...c,
           ...(include?._count
             ? { _count: { orders: store.orders.filter((o) => o.customerId === c.id).length } }
@@ -1142,8 +1160,12 @@ export function createInMemoryPrisma() {
                 })),
               }
             : {}),
-        })),
+        }));
+      },
       create: async ({ data }: { data: Row }) => {
+        if (data.customerCode && store.customers.some((c) => c.tenantId === data.tenantId && c.customerCode === data.customerCode)) {
+          throw p2002();
+        }
         const now = new Date();
         const row = { id: uuid(), status: 'ACTIVE', createdAt: now, updatedAt: now, ...data };
         store.customers.push(row);
@@ -1152,8 +1174,18 @@ export function createInMemoryPrisma() {
       update: async ({ where, data }: { where: Row; data: Row }) => {
         const idx = store.customers.findIndex((c) => matchesWhere(c, where));
         if (idx === -1) throw new Error('Customer not found');
+        const current = store.customers[idx];
+        if (data.customerCode && store.customers.some((c) => c.id !== current.id && c.tenantId === current.tenantId && c.customerCode === data.customerCode)) {
+          throw p2002();
+        }
         store.customers[idx] = { ...store.customers[idx], ...data, updatedAt: new Date() };
         return { ...store.customers[idx] };
+      },
+      delete: async ({ where }: { where: Row }) => {
+        const idx = store.customers.findIndex((c) => matchesWhere(c, where));
+        if (idx === -1) throw new Error('Customer not found');
+        const [removed] = store.customers.splice(idx, 1);
+        return { ...removed };
       },
     },
 

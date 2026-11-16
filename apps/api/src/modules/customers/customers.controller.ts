@@ -3,9 +3,17 @@ import { asyncHandler } from '../../common/utils/asyncHandler';
 import * as customersService from './customers.service';
 
 export const list = asyncHandler(async (req: Request, res: Response) => {
-  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
-  const data = await customersService.listCustomers(req.tenant!.tenantId, search);
-  res.json({ success: true, data });
+  const result = await customersService.listCustomers(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data: result.items,
+    pagination: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+    },
+  });
 });
 
 export const getOne = asyncHandler(async (req: Request, res: Response) => {
@@ -27,6 +35,18 @@ export const update = asyncHandler(async (req: Request, res: Response) => {
     req.tenant!.tenantId,
     req.params.customerId,
     req.body,
+    { userId: req.auth!.userId, employeeId: req.tenant!.employeeId, ipAddress: req.ip || null },
+  );
+  res.json({ success: true, data });
+});
+
+export const remove = asyncHandler(async (req: Request, res: Response) => {
+  const mode = typeof req.query.mode === 'string' ? req.query.mode : undefined;
+  const data = await customersService.deleteCustomer(
+    req.tenant!.tenantId,
+    req.params.customerId,
+    { userId: req.auth!.userId, employeeId: req.tenant!.employeeId, ipAddress: req.ip || null },
+    mode,
   );
   res.json({ success: true, data });
 });

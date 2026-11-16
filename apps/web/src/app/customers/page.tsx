@@ -2,20 +2,26 @@
 
 import { formatCurrency, type CurrencyCode } from '@cambodia-pos/shared';
 import {
-  Calendar,
+  AlertTriangle,
+  Archive,
   CheckCircle2,
   Clock,
+  Copy,
   DollarSign,
   Edit2,
   Eye,
+  FileText,
   Mail,
   MapPin,
   Phone,
   Plus,
+  Power,
   Printer,
   RefreshCw,
   Search,
   ShoppingBag,
+  Sparkles,
+  Trash2,
   TrendingUp,
   UserCheck,
   Users,
@@ -30,6 +36,7 @@ import { apiRequest, ApiClientError } from '@/lib/api';
 
 interface CustomerRow {
   id: string;
+  tenantId?: string;
   customerCode: string;
   name: string;
   phone: string | null;
@@ -38,6 +45,7 @@ interface CustomerRow {
   notes?: string | null;
   status: string;
   createdAt: string;
+  updatedAt?: string;
   _count?: { orders: number };
   orders?: Array<{
     id: string;
@@ -63,8 +71,10 @@ interface CustomerDetail extends CustomerRow {
 const EXCHANGE_RATE = 4100;
 
 export default function CustomersPage() {
-  const { activeTenant } = useAuth();
+  const { activeTenant, hasPermission } = useAuth();
   const { t } = useI18n();
+
+  const canManage = hasPermission('customers.manage');
 
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [search, setSearch] = useState('');
@@ -74,6 +84,7 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Add / Edit Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -95,7 +106,10 @@ export default function CustomersPage() {
     if (!activeTenant) return;
     setLoading(true);
     try {
-      const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+      const params = new URLSearchParams();
+      if (search.trim()) params.set('search', search.trim());
+      if (statusFilter !== 'ALL') params.set('status', statusFilter);
+      const qs = params.toString() ? `?${params.toString()}` : '';
       const data = await apiRequest<CustomerRow[]>(`/customers${qs}`);
       setCustomers(data);
     } catch (err) {
@@ -103,7 +117,7 @@ export default function CustomersPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeTenant, search]);
+  }, [activeTenant, search, statusFilter]);
 
   useEffect(() => {
     void loadCustomers();
@@ -133,6 +147,17 @@ export default function CustomersPage() {
     setModalOpen(true);
   };
 
+  const handleAutoCode = () => {
+    const rand = Math.floor(1000 + Math.random() * 9000);
+    setCustomerCode(`CUST-${rand}`);
+  };
+
+  const handleCopyId = (id: string) => {
+    void navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -142,11 +167,12 @@ export default function CustomersPage() {
         await apiRequest(`/customers/${editId}`, {
           method: 'PATCH',
           body: JSON.stringify({
-            name,
-            phone: phone || null,
-            email: email || null,
-            address: address || null,
-            notes: notes || null,
+            customerCode: customerCode.trim().toUpperCase() || undefined,
+            name: name.trim(),
+            phone: phone.trim() || null,
+            email: email.trim().toLowerCase() || null,
+            address: address.trim() || null,
+            notes: notes.trim() || null,
             status,
           }),
         });
@@ -155,12 +181,12 @@ export default function CustomersPage() {
         await apiRequest('/customers', {
           method: 'POST',
           body: JSON.stringify({
-            name,
-            customerCode: customerCode.trim() || undefined,
-            phone: phone || null,
-            email: email || null,
-            address: address || null,
-            notes: notes || null,
+            name: name.trim(),
+            customerCode: customerCode.trim().toUpperCase() || undefined,
+            phone: phone.trim() || null,
+            email: email.trim().toLowerCase() || null,
+            address: address.trim() || null,
+            notes: notes.trim() || null,
           }),
         });
         setSuccessMsg('Customer created successfully');
@@ -179,6 +205,40 @@ export default function CustomersPage() {
     }
   };
 
+  const handleToggleStatus = async (c: CustomerRow) => {
+    const nextStatus = c.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    try {
+      await apiRequest(`/customers/${c.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      setSuccessMsg(`Customer marked as ${nextStatus.toLowerCase()}`);
+      await loadCustomers();
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Unable to update customer status');
+    }
+  };
+
+  const handleDelete = async (c: CustomerRow) => {
+    const hasOrders = (c._count?.orders ?? 0) > 0;
+    const promptMsg = hasOrders
+      ? `Customer "${c.name}" has purchase history (${c._count?.orders} orders). To protect accounting records, this customer will be archived (marked as INACTIVE). Proceed?`
+      : `Are you sure you want to permanently delete customer "${c.name}" (${c.customerCode})?`;
+    if (!window.confirm(promptMsg)) return;
+
+    try {
+      await apiRequest(`/customers/${c.id}${hasOrders ? '' : '?mode=permanent'}`, {
+        method: 'DELETE',
+      });
+      setSuccessMsg(`Customer ${hasOrders ? 'archived' : 'deleted'} successfully`);
+      await loadCustomers();
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Unable to delete customer');
+    }
+  };
+
   const openHistory = async (id: string) => {
     setLoadingDetail(true);
     try {
@@ -193,11 +253,21 @@ export default function CustomersPage() {
 
   // Filtered customer list
   const filteredCustomers = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return customers.filter((c) => {
       if (statusFilter !== 'ALL' && c.status !== statusFilter) return false;
-      return true;
+      if (!q) return true;
+      return (
+        c.name.toLowerCase().includes(q) ||
+        c.customerCode.toLowerCase().includes(q) ||
+        (c.phone && c.phone.toLowerCase().includes(q)) ||
+        (c.email && c.email.toLowerCase().includes(q)) ||
+        (c.address && c.address.toLowerCase().includes(q)) ||
+        (c.notes && c.notes.toLowerCase().includes(q)) ||
+        c.id.toLowerCase().includes(q)
+      );
     });
-  }, [customers, statusFilter]);
+  }, [customers, search, statusFilter]);
 
   // Reset page when filters change
   useEffect(() => {
@@ -274,6 +344,9 @@ export default function CustomersPage() {
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">
                 {t.customers?.title ?? 'Customers'}
               </h1>
+              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                {filteredCustomers.length} registered
+              </span>
             </div>
             <p className="mt-1 text-sm text-slate-600">
               {t.customers?.subtitle ??
@@ -290,21 +363,26 @@ export default function CustomersPage() {
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">{t.common.refresh}</span>
             </button>
-            <button
-              type="button"
-              onClick={openCreateModal}
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition"
-            >
-              <Plus className="h-4 w-4" />
-              {t.customers?.addCustomer ?? 'Add Customer'}
-            </button>
+            {canManage && (
+              <button
+                type="button"
+                onClick={openCreateModal}
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition"
+              >
+                <Plus className="h-4 w-4" />
+                {t.customers?.addCustomer ?? 'Add Customer'}
+              </button>
+            )}
           </div>
         </div>
 
         {/* Notifications */}
         {error && (
-          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-center justify-between">
-            <span>{error}</span>
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
             <button
               type="button"
               onClick={() => setError(null)}
@@ -315,7 +393,7 @@ export default function CustomersPage() {
           </div>
         )}
         {successMsg && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 flex items-center gap-2">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 flex items-center gap-2 shadow-sm">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
             <span>{successMsg}</span>
           </div>
@@ -411,10 +489,19 @@ export default function CustomersPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={
-                t.customers?.searchPlaceholder ?? 'Search by customer name, phone, code...'
+                t.customers?.searchPlaceholder ?? 'Search by customer name, phone, code, email, notes...'
               }
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm focus:border-emerald-500 focus:bg-white focus:outline-none transition"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-8 text-sm focus:border-emerald-500 focus:bg-white focus:outline-none transition"
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -448,19 +535,20 @@ export default function CustomersPage() {
             <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
               <thead className="bg-slate-50/75 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 <tr>
-                  <th className="px-5 py-3.5">Customer</th>
-                  <th className="px-5 py-3.5">Contact Info</th>
-                  <th className="px-5 py-3.5">Location / Address</th>
+                  <th className="px-5 py-3.5">Customer & ID</th>
+                  <th className="px-5 py-3.5">Contact Details</th>
+                  <th className="px-5 py-3.5">Address & Notes</th>
                   <th className="px-5 py-3.5 text-center">Orders</th>
                   <th className="px-5 py-3.5">Lifetime Spend</th>
                   <th className="px-5 py-3.5">Status</th>
+                  <th className="px-5 py-3.5">Timestamps</th>
                   <th className="px-5 py-3.5 text-right">{t.common.actions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-5 py-12 text-center text-slate-500">
+                    <td colSpan={8} className="px-5 py-12 text-center text-slate-500">
                       <div className="flex flex-col items-center gap-2">
                         <RefreshCw className="h-6 w-6 animate-spin text-emerald-600" />
                         <span className="text-sm">{t.common.loading}</span>
@@ -469,7 +557,7 @@ export default function CustomersPage() {
                   </tr>
                 ) : filteredCustomers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-5 py-12 text-center text-slate-500">
+                    <td colSpan={8} className="px-5 py-12 text-center text-slate-500">
                       <Users className="mx-auto h-8 w-8 text-slate-300" />
                       <p className="mt-2 text-sm font-medium text-slate-900">{t.common.noData}</p>
                       <p className="mt-1 text-xs text-slate-500">
@@ -504,8 +592,24 @@ export default function CustomersPage() {
                               >
                                 {c.name}
                               </button>
-                              <div className="mt-0.5 font-mono text-xs text-slate-500">
-                                {c.customerCode}
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="font-mono text-xs font-medium text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                  {c.customerCode}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyId(c.id)}
+                                  title={`Full UUID: ${c.id}`}
+                                  className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded px-1 transition"
+                                >
+                                  <span>{c.id.slice(0, 8)}...</span>
+                                  <Copy className="h-2.5 w-2.5" />
+                                  {copiedId === c.id && (
+                                    <span className="text-[10px] text-emerald-600 font-semibold">
+                                      Copied
+                                    </span>
+                                  )}
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -519,7 +623,7 @@ export default function CustomersPage() {
                                 href={`tel:${c.phone}`}
                                 className="flex items-center gap-1.5 text-slate-700 hover:text-emerald-600"
                               >
-                                <Phone className="h-3.5 w-3.5 text-slate-400" />
+                                <Phone className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
                                 <span>{c.phone}</span>
                               </a>
                             ) : (
@@ -530,23 +634,32 @@ export default function CustomersPage() {
                                 href={`mailto:${c.email}`}
                                 className="flex items-center gap-1.5 text-slate-500 hover:text-emerald-600 truncate max-w-[180px]"
                               >
-                                <Mail className="h-3.5 w-3.5 text-slate-400" />
+                                <Mail className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
                                 <span className="truncate">{c.email}</span>
                               </a>
                             )}
                           </div>
                         </td>
 
-                        {/* Address */}
+                        {/* Address & Notes */}
                         <td className="px-5 py-4">
-                          {c.address ? (
-                            <div className="flex items-center gap-1.5 text-xs text-slate-600 max-w-xs truncate">
-                              <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
-                              <span className="truncate">{c.address}</span>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-slate-400">&mdash;</span>
-                          )}
+                          <div className="space-y-1 max-w-xs">
+                            {c.address ? (
+                              <div className="flex items-center gap-1.5 text-xs text-slate-600 truncate" title={c.address}>
+                                <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-slate-400" />
+                                <span className="truncate">{c.address}</span>
+                              </div>
+                            ) : null}
+                            {c.notes ? (
+                              <div className="flex items-center gap-1.5 text-xs text-slate-500 italic truncate" title={c.notes}>
+                                <FileText className="h-3.5 w-3.5 flex-shrink-0 text-amber-500" />
+                                <span className="truncate">{c.notes}</span>
+                              </div>
+                            ) : null}
+                            {!c.address && !c.notes && (
+                              <span className="text-xs text-slate-400">&mdash;</span>
+                            )}
+                          </div>
                         </td>
 
                         {/* Orders count */}
@@ -554,7 +667,7 @@ export default function CustomersPage() {
                           <span
                             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                               orderCount > 0
-                                ? 'bg-blue-50 text-blue-700'
+                                ? 'bg-blue-50 text-blue-700 border border-blue-200'
                                 : 'bg-slate-100 text-slate-500'
                             }`}
                           >
@@ -580,34 +693,72 @@ export default function CustomersPage() {
                           <span
                             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
                               c.status === 'ACTIVE'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : 'bg-slate-100 text-slate-600'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : 'bg-slate-100 text-slate-600 border border-slate-200'
                             }`}
                           >
                             {c.status}
                           </span>
                         </td>
 
+                        {/* Timestamps */}
+                        <td className="px-5 py-4">
+                          <div className="text-xs text-slate-500 space-y-0.5">
+                            <div title="Created At">
+                              {new Date(c.createdAt).toLocaleDateString()}
+                            </div>
+                            {c.updatedAt && c.updatedAt !== c.createdAt && (
+                              <div className="text-[10px] text-slate-400" title="Updated At">
+                                Upd: {new Date(c.updatedAt).toLocaleDateString()}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+
                         {/* Actions */}
                         <td className="px-5 py-4 text-right">
-                          <div className="inline-flex items-center gap-1.5">
+                          <div className="inline-flex items-center gap-1">
                             <button
                               type="button"
                               onClick={() => void openHistory(c.id)}
-                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition"
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition"
                               title={t.customers?.viewOrders ?? 'View History'}
                             >
                               <Eye className="h-3.5 w-3.5 text-slate-500" />
-                              <span>{t.customers?.viewOrders ?? 'History'}</span>
+                              <span className="hidden md:inline">{t.customers?.viewOrders ?? 'History'}</span>
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => openEditModal(c)}
-                              className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-600 shadow-sm hover:bg-slate-50 transition"
-                              title={t.customers?.editCustomer ?? 'Edit'}
-                            >
-                              <Edit2 className="h-3.5 w-3.5" />
-                            </button>
+                            {canManage && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditModal(c)}
+                                  className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-600 shadow-sm hover:bg-slate-50 transition"
+                                  title={t.customers?.editCustomer ?? 'Edit'}
+                                >
+                                  <Edit2 className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleToggleStatus(c)}
+                                  className={`rounded-lg border p-1.5 shadow-sm transition ${
+                                    c.status === 'ACTIVE'
+                                      ? 'border-slate-200 bg-white text-slate-600 hover:text-amber-600 hover:bg-amber-50'
+                                      : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                  }`}
+                                  title={c.status === 'ACTIVE' ? 'Deactivate Customer' : 'Activate Customer'}
+                                >
+                                  <Power className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDelete(c)}
+                                  className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-400 shadow-sm hover:bg-red-50 hover:text-red-600 transition"
+                                  title="Delete / Archive customer"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -645,8 +796,8 @@ export default function CustomersPage() {
                     </h2>
                     <p className="text-xs text-slate-500">
                       {editId
-                        ? 'Update client contact information and settings.'
-                        : 'Register a new customer profile for POS and sales tracking.'}
+                        ? 'Update client contact information, identifiers, and status.'
+                        : 'Register a new customer profile for POS checkouts and loyalty tracking.'}
                     </p>
                   </div>
                 </div>
@@ -657,6 +808,14 @@ export default function CustomersPage() {
                 >
                   <X className="h-5 w-5" />
                 </button>
+              </div>
+
+              {/* Workspace Tenant Notice Banner */}
+              <div className="mt-4 rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs text-slate-600 flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+                <span>
+                  Customer codes are uniquely scoped to your workspace: <strong>{activeTenant?.name ?? 'Store'}</strong>.
+                </span>
               </div>
 
               <form onSubmit={handleSave} className="mt-4 space-y-4">
@@ -676,21 +835,27 @@ export default function CustomersPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700">
-                      {t.customers?.customerCode ?? 'Customer Code'}
-                    </label>
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-semibold text-slate-700">
+                        {t.customers?.customerCode ?? 'Customer Code'}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleAutoCode}
+                        className="text-[11px] font-medium text-emerald-600 hover:text-emerald-700 underline"
+                      >
+                        Auto-Gen
+                      </button>
+                    </div>
                     <input
-                      disabled={!!editId}
                       value={customerCode}
                       onChange={(e) => setCustomerCode(e.target.value.toUpperCase())}
-                      placeholder={editId ? customerCode : 'Auto (e.g. CUST-0001)'}
-                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono focus:border-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
+                      placeholder="e.g. CUST-0001 (auto if empty)"
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-mono uppercase focus:border-emerald-500 focus:outline-none"
                     />
-                    {!editId && (
-                      <span className="mt-1 block text-[10px] text-slate-400">
-                        {t.customers?.newCustomerCode ?? 'Auto-generated if left blank'}
-                      </span>
-                    )}
+                    <span className="mt-1 block text-[10px] text-slate-400">
+                      Unique within store. Auto-generated if left blank.
+                    </span>
                   </div>
                 </div>
 
@@ -741,7 +906,7 @@ export default function CustomersPage() {
                     rows={2}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
-                    placeholder="VIP member, credit terms, special instructions..."
+                    placeholder="VIP member, credit terms, special preferences..."
                     className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
@@ -800,15 +965,19 @@ export default function CustomersPage() {
                       <span
                         className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
                           detail.status === 'ACTIVE'
-                            ? 'bg-emerald-50 text-emerald-700'
-                            : 'bg-slate-100 text-slate-600'
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : 'bg-slate-100 text-slate-600 border border-slate-200'
                         }`}
                       >
                         {detail.status}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-xs text-slate-500 font-mono mt-0.5">
-                      <span>{detail.customerCode}</span>
+                      <span className="font-semibold text-emerald-700">{detail.customerCode}</span>
+                      <span>&bull;</span>
+                      <span className="font-sans text-[11px]">
+                        ID: {detail.id}
+                      </span>
                       <span>&bull;</span>
                       <span className="font-sans">
                         {t.customers?.memberSince ?? 'Member Since'}:{' '}
@@ -827,16 +996,18 @@ export default function CustomersPage() {
                     <Printer className="h-3.5 w-3.5" />
                     <span>{t.customers?.printStatement ?? 'Print'}</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      openEditModal(detail);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
-                  >
-                    <Edit2 className="h-3.5 w-3.5" />
-                    <span>{t.common.edit}</span>
-                  </button>
+                  {canManage && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        openEditModal(detail);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
+                    >
+                      <Edit2 className="h-3.5 w-3.5" />
+                      <span>{t.common.edit}</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setDetail(null)}
@@ -994,10 +1165,10 @@ export default function CustomersPage() {
                                   <span
                                     className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                                       o.status === 'COMPLETED'
-                                        ? 'bg-emerald-50 text-emerald-700'
+                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                         : o.status === 'CANCELLED'
-                                        ? 'bg-rose-50 text-rose-700'
-                                        : 'bg-amber-50 text-amber-700'
+                                        ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                        : 'bg-amber-50 text-amber-700 border border-amber-200'
                                     }`}
                                   >
                                     {o.status}

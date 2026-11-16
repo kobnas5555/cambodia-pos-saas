@@ -179,6 +179,15 @@ export const updateCustomerSchema = createCustomerSchema.partial().extend({
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
 });
 
+export const listCustomersQuerySchema = z.object({
+  search: z.string().optional(),
+  status: z.enum(['ALL', 'ACTIVE', 'INACTIVE']).optional().default('ALL'),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListCustomersQueryInput = z.infer<typeof listCustomersQuerySchema>;
+
 export const orderItemInputSchema = z.object({
   productId: z.string().uuid(),
   quantity: positiveDecimalString('Quantity must be greater than zero'),
