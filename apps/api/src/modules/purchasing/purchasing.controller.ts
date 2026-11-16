@@ -23,7 +23,10 @@ export const list = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const listPayments = asyncHandler(async (req: Request, res: Response) => {
-  const result = await purchasingService.listPurchasePayments(req.tenant!.tenantId, req.query as any);
+  const result = await purchasingService.listPurchasePayments(req.tenant!.tenantId, {
+    ...req.query,
+    purchaseId: req.params.purchaseId || req.query.purchaseId,
+  } as any);
   res.json({
     success: true,
     data: result.items ?? result,
@@ -34,6 +37,11 @@ export const listPayments = asyncHandler(async (req: Request, res: Response) => 
       totalPages: result.totalPages,
     },
   });
+});
+
+export const getPayment = asyncHandler(async (req: Request, res: Response) => {
+  const data = await purchasingService.getPurchasePaymentById(req.tenant!.tenantId, req.params.paymentId);
+  res.json({ success: true, data });
 });
 
 export const listItems = asyncHandler(async (req: Request, res: Response) => {

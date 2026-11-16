@@ -8,6 +8,7 @@ import {
   type CreatePurchasePaymentInput,
   type CurrencyCode,
   type ListPurchaseItemsQueryInput,
+  type ListPurchasePaymentsQueryInput,
   type ListPurchasesQueryInput,
 } from '@cambodia-pos/shared';
 import { AppError } from '../../common/errors/AppError';
@@ -101,42 +102,47 @@ export async function listPurchases(
 
 export async function listPurchasePayments(
   tenantId: string,
-  filters: {
-    branchId?: string;
-    supplierId?: string;
-    paymentMethod?: string;
-    currencyCode?: string;
-    search?: string;
-    page?: number | string;
-    limit?: number | string;
-  } = {},
+  filters: Partial<ListPurchasePaymentsQueryInput> | string = {},
 ) {
+  const query = typeof filters === 'string' ? { search: filters } : filters;
   const where: any = {
     tenantId,
-    ...(filters.paymentMethod && filters.paymentMethod !== 'ALL' ? { paymentMethod: filters.paymentMethod } : {}),
-    ...(filters.currencyCode && filters.currencyCode !== 'ALL' ? { currencyCode: filters.currencyCode } : {}),
-    ...(filters.branchId || filters.supplierId || filters.search
+    ...(query.purchaseId ? { purchaseId: query.purchaseId } : {}),
+    ...(query.paymentMethod && (query.paymentMethod as string) !== 'ALL' ? { paymentMethod: query.paymentMethod } : {}),
+    ...(query.currencyCode ? { currencyCode: query.currencyCode } : {}),
+    ...(query.status && query.status !== 'ALL' ? { status: query.status } : {}),
+    ...(query.startDate || query.endDate
+      ? {
+          paidAt: {
+            ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+            ...(query.endDate ? { lte: new Date(query.endDate + 'T23:59:59.999Z') } : {}),
+          },
+        }
+      : {}),
+    ...(query.branchId || query.supplierId
       ? {
           purchase: {
-            ...(filters.branchId ? { branchId: filters.branchId } : {}),
-            ...(filters.supplierId ? { supplierId: filters.supplierId } : {}),
-            ...(filters.search
-              ? {
-                  OR: [
-                    { purchaseNumber: { contains: filters.search, mode: 'insensitive' } },
-                    { supplier: { name: { contains: filters.search, mode: 'insensitive' } } },
-                  ],
-                }
-              : {}),
+            ...(query.branchId ? { branchId: query.branchId } : {}),
+            ...(query.supplierId ? { supplierId: query.supplierId } : {}),
           },
         }
       : {}),
   };
 
+  if (query.search?.trim()) {
+    const q = query.search.trim();
+    where.OR = [
+      { referenceNumber: { contains: q, mode: 'insensitive' } },
+      { id: { contains: q, mode: 'insensitive' } },
+      { purchase: { purchaseNumber: { contains: q, mode: 'insensitive' } } },
+      { purchase: { supplier: { name: { contains: q, mode: 'insensitive' } } } },
+    ];
+  }
+
   const total = await prisma.purchasePayment.count({ where });
-  const hasPagination = filters.page !== undefined || filters.limit !== undefined;
-  const page = filters.page ? Math.max(1, Number(filters.page)) : 1;
-  const limit = filters.limit ? Math.min(100, Math.max(1, Number(filters.limit))) : (hasPagination ? 50 : total || 50);
+  const hasPagination = query.page !== undefined || query.limit !== undefined;
+  const page = query.page ? Math.max(1, Number(query.page)) : 1;
+  const limit = query.limit ? Math.min(100, Math.max(1, Number(query.limit))) : (hasPagination ? 50 : total || 50);
   const skip = hasPagination ? (page - 1) * limit : undefined;
   const take = hasPagination ? limit : undefined;
 
@@ -559,7 +565,8 @@ export async function recordPurchasePayment(
         exchangeRate: rate,
         paymentMethod: input.paymentMethod,
         referenceNumber: input.referenceNumber ?? null,
-        status: 'COMPLETED',
+        status: input.status ?? 'COMPLETED',
+        ...(input.paidAt ? { paidAt: new Date(input.paidAt) } : {}),
       },
     });
 
@@ -606,5 +613,27 @@ export async function recordPurchasePayment(
 
     return payment;
   });
+}
+
+export async function getPurchasePaymentById(tenantId: string, paymentId: string) {
+  const payment = await prisma.purchasePayment.findFirst({
+    where: { id: paymentId, tenantId },
+    include: {
+      purchase: {
+        select: {
+          id: true,
+          purchaseNumber: true,
+          totalAmount: true,
+          currencyCode: true,
+          supplier: { select: { id: true, name: true } },
+          branch: { select: { id: true, name: true } },
+        },
+      },
+    },
+  });
+  if (!payment) {
+    throw AppError.notFound('Purchase payment not found', 'PURCHASE_PAYMENT_NOT_FOUND');
+  }
+  return payment;
 }
 

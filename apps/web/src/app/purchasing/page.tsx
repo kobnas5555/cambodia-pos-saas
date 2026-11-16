@@ -100,18 +100,23 @@ interface PurchaseRow {
 
 interface PurchasePaymentRow {
   id: string;
+  tenantId?: string;
   purchaseId: string;
   amount: string;
   currencyCode: CurrencyCode;
+  exchangeRate?: string;
   paymentMethod: string;
   referenceNumber: string | null;
   status: string;
   paidAt: string;
+  createdAt?: string;
   purchase?: {
     id: string;
     purchaseNumber: string;
     totalAmount: string;
     currencyCode: CurrencyCode;
+    branchId?: string;
+    supplierId?: string;
     supplier?: { id: string; name: string };
     branch?: { id: string; name: string };
   };
@@ -529,18 +534,32 @@ export default function PurchasingPage() {
 
   const filteredPayments = useMemo(() => {
     return payments.filter((pay) => {
+      if (branchFilter !== 'ALL' && pay.purchase?.branchId && pay.purchase.branchId !== branchFilter) return false;
+      if (supplierFilter !== 'ALL' && pay.purchase?.supplierId && pay.purchase.supplierId !== supplierFilter) return false;
       if (paymentMethodFilter !== 'ALL' && pay.paymentMethod !== paymentMethodFilter) return false;
       if (currencyFilter !== 'ALL' && pay.currencyCode !== currencyFilter) return false;
+      if (startDateFilter && new Date(pay.paidAt) < new Date(startDateFilter)) return false;
+      if (endDateFilter && new Date(pay.paidAt) > new Date(endDateFilter + 'T23:59:59.999Z')) return false;
       if (!q) return true;
       return (
         (pay.purchase?.purchaseNumber ?? '').toLowerCase().includes(q) ||
         (pay.purchase?.supplier?.name ?? '').toLowerCase().includes(q) ||
         (pay.referenceNumber ?? '').toLowerCase().includes(q) ||
         pay.paymentMethod.toLowerCase().includes(q) ||
-        pay.id.toLowerCase().includes(q)
+        pay.id.toLowerCase().includes(q) ||
+        pay.purchaseId.toLowerCase().includes(q)
       );
     });
-  }, [payments, paymentMethodFilter, currencyFilter, q]);
+  }, [
+    payments,
+    branchFilter,
+    supplierFilter,
+    paymentMethodFilter,
+    currencyFilter,
+    startDateFilter,
+    endDateFilter,
+    q,
+  ]);
 
   const paginatedPayments = useMemo(() => {
     const start = (paymentPage - 1) * paymentPageSize;
@@ -1498,14 +1517,14 @@ export default function PurchasingPage() {
                 <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                   <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500">
                     <tr>
-                      <th className="px-4 py-3">{t.common.date}</th>
-                      <th className="px-4 py-3">{t.purchasing.purchaseNumber}</th>
-                      <th className="px-4 py-3">{t.purchasing.supplier}</th>
-                      <th className="px-4 py-3">Branch</th>
-                      <th className="px-4 py-3">Payment Method</th>
-                      <th className="px-4 py-3">Reference #</th>
-                      <th className="px-4 py-3">{t.purchasing.paidAmount}</th>
-                      <th className="px-4 py-3">{t.common.status}</th>
+                      <th className="px-4 py-3.5">Payment &amp; ID</th>
+                      <th className="px-4 py-3.5">Purchase Order</th>
+                      <th className="px-4 py-3.5">Supplier &amp; Branch</th>
+                      <th className="px-4 py-3.5">Method &amp; Ref</th>
+                      <th className="px-4 py-3.5">Exchange Rate</th>
+                      <th className="px-4 py-3.5 text-right">{t.purchasing.paidAmount}</th>
+                      <th className="px-4 py-3.5">{t.common.status}</th>
+                      <th className="px-4 py-3.5 text-right">{t.common.actions}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -1515,7 +1534,7 @@ export default function PurchasingPage() {
                           <CreditCard className="mx-auto h-8 w-8 text-slate-300 mb-2" />
                           <p className="text-sm font-medium text-slate-900">{t.common.noData}</p>
                           <p className="mt-1 text-xs text-slate-500">
-                            {search || paymentMethodFilter !== 'ALL'
+                            {search || paymentMethodFilter !== 'ALL' || currencyFilter !== 'ALL' || branchFilter !== 'ALL' || supplierFilter !== 'ALL'
                               ? 'No payments matched your filter criteria.'
                               : 'No supplier payments recorded yet.'}
                           </p>
@@ -1524,41 +1543,128 @@ export default function PurchasingPage() {
                     ) : (
                       paginatedPayments.map((pay) => (
                         <tr key={pay.id} className="hover:bg-slate-50/50 transition">
-                          <td className="px-4 py-3 text-xs text-slate-600">
-                            {new Date(pay.paidAt).toLocaleString()}
-                          </td>
+                          {/* Payment & ID */}
                           <td className="px-4 py-3">
-                            {pay.purchase ? (
-                              <button
-                                type="button"
-                                onClick={() => void openDetailModal(pay.purchase!.id)}
-                                className="font-mono text-xs font-bold text-emerald-800 hover:underline"
-                              >
-                                {pay.purchase.purchaseNumber}
-                              </button>
+                            <div className="space-y-0.5">
+                              <div className="text-xs font-medium text-slate-800">
+                                {new Date(pay.paidAt).toLocaleString()}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyId(pay.id)}
+                                  title={`Payment ID: ${pay.id}`}
+                                  className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded px-1 transition"
+                                >
+                                  <span>ID: {pay.id.slice(0, 8)}...</span>
+                                  {copiedId === pay.id ? (
+                                    <Check className="h-2.5 w-2.5 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="h-2.5 w-2.5" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Purchase Order */}
+                          <td className="px-4 py-3">
+                            <div className="space-y-0.5">
+                              {pay.purchase ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void openDetailModal(pay.purchase!.id)}
+                                  className="font-mono text-xs font-bold text-emerald-800 hover:underline block text-left"
+                                >
+                                  {pay.purchase.purchaseNumber}
+                                </button>
+                              ) : (
+                                <span className="font-mono text-xs text-slate-500">—</span>
+                              )}
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyId(pay.purchaseId)}
+                                  title={`Purchase ID: ${pay.purchaseId}`}
+                                  className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded px-1 transition"
+                                >
+                                  <span>PO ID: {pay.purchaseId.slice(0, 8)}...</span>
+                                  {copiedId === pay.purchaseId ? (
+                                    <Check className="h-2.5 w-2.5 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="h-2.5 w-2.5" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Supplier & Branch */}
+                          <td className="px-4 py-3 text-xs space-y-0.5">
+                            <div className="font-semibold text-slate-900">
+                              {pay.purchase?.supplier?.name ?? '—'}
+                            </div>
+                            <div className="flex items-center gap-1 text-[11px] text-slate-600">
+                              <Building2 className="h-3 w-3 text-slate-400" />
+                              <span>{pay.purchase?.branch?.name ?? '—'}</span>
+                            </div>
+                          </td>
+
+                          {/* Method & Ref */}
+                          <td className="px-4 py-3 text-xs space-y-0.5">
+                            <div>
+                              <span className="rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-800">
+                                {pay.paymentMethod}
+                              </span>
+                            </div>
+                            {pay.referenceNumber ? (
+                              <div className="font-mono text-[11px] text-slate-500">
+                                Ref: {pay.referenceNumber}
+                              </div>
                             ) : (
-                              <span className="font-mono text-xs text-slate-500">—</span>
+                              <div className="text-[11px] text-slate-400">—</div>
                             )}
                           </td>
-                          <td className="px-4 py-3 font-semibold text-slate-900">
-                            {pay.purchase?.supplier?.name ?? '—'}
-                          </td>
-                          <td className="px-4 py-3 text-slate-600">{pay.purchase?.branch?.name ?? '—'}</td>
+
+                          {/* Exchange Rate */}
                           <td className="px-4 py-3">
-                            <span className="rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-800">
-                              {pay.paymentMethod}
+                            <span className="font-mono text-xs text-slate-600">
+                              {Number(pay.exchangeRate || 4100).toLocaleString()} KHR
                             </span>
                           </td>
-                          <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                            {pay.referenceNumber || '—'}
+
+                          {/* Paid Amount */}
+                          <td className="px-4 py-3 text-right">
+                            <div className="font-mono font-bold text-emerald-700">
+                              {formatCurrency(pay.amount, pay.currencyCode)}
+                            </div>
                           </td>
-                          <td className="px-4 py-3 font-bold text-emerald-700">
-                            {formatCurrency(pay.amount, pay.currencyCode)}
-                          </td>
+
+                          {/* Status */}
                           <td className="px-4 py-3">
-                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                                pay.status === 'COMPLETED'
+                                  ? 'bg-emerald-50 text-emerald-700'
+                                  : pay.status === 'PENDING'
+                                    ? 'bg-amber-50 text-amber-700'
+                                    : 'bg-slate-100 text-slate-600'
+                              }`}
+                            >
                               {pay.status}
                             </span>
+                          </td>
+
+                          {/* Actions */}
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => void openDetailModal(pay.purchaseId)}
+                              className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
+                            >
+                              <Eye className="h-3 w-3" />
+                              View PO
+                            </button>
                           </td>
                         </tr>
                       ))

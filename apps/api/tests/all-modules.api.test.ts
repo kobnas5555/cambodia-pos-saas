@@ -1832,7 +1832,7 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(invRes.body.data[0].quantity).toBe('20.0000');
 
-    // 6. List supplier payments with method filtering
+    // 6. List supplier payments with method filtering, pagination, and single payment lookup
     const supPaymentsRes = await request(app)
       .get(`/api/v1/purchases/payments?branchId=${branchId}&paymentMethod=ABA`)
       .set('Authorization', `Bearer ${token}`);
@@ -1841,6 +1841,35 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(supPaymentsRes.body.data[0].paymentMethod).toBe('ABA');
     expect(supPaymentsRes.body.pagination).toBeDefined();
     expect(supPaymentsRes.body.pagination.total).toBeGreaterThanOrEqual(1);
+
+    // Verify all 10 schema fields of purchase_payments
+    const verifiedPayment = supPaymentsRes.body.data.find((p: any) => p.paymentMethod === 'ABA');
+    expect(verifiedPayment).toBeDefined();
+    expect(verifiedPayment.id).toBeDefined();
+    expect(verifiedPayment.tenantId).toBeDefined();
+    expect(verifiedPayment.purchaseId).toBe(poId);
+    expect(verifiedPayment.amount).toBe('22.00');
+    expect(verifiedPayment.currencyCode).toBe('USD');
+    expect(verifiedPayment.exchangeRate).toBeDefined();
+    expect(verifiedPayment.paymentMethod).toBe('ABA');
+    expect(verifiedPayment.referenceNumber).toBe('ABA-SUP-55');
+    expect(verifiedPayment.paidAt).toBeDefined();
+    expect(verifiedPayment.status).toBe('COMPLETED');
+
+    // Scoped purchase payments endpoint GET /api/v1/purchases/:purchaseId/payments
+    const poPaymentsRes = await request(app)
+      .get(`/api/v1/purchases/${poId}/payments`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(poPaymentsRes.status).toBe(200);
+    expect(poPaymentsRes.body.data).toHaveLength(2); // CASH (KHR) + ABA (USD)
+
+    // Lookup individual purchase payment by ID
+    const singlePaymentRes = await request(app)
+      .get(`/api/v1/purchases/payments/${verifiedPayment.id}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(singlePaymentRes.status).toBe(200);
+    expect(singlePaymentRes.body.data.id).toBe(verifiedPayment.id);
+    expect(singlePaymentRes.body.data.referenceNumber).toBe('ABA-SUP-55');
 
     // 7. List purchase items across purchases & for specific purchase
     const allPurchaseItemsRes = await request(app)

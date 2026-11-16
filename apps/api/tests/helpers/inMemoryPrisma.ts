@@ -1735,6 +1735,40 @@ export function createInMemoryPrisma() {
     purchasePayment: {
       count: async ({ where }: { where?: Row } = {}) =>
         store.purchasePayments.filter((pp) => matchesWhere(pp, where)).length,
+      findFirst: async ({ where, include }: { where?: Row; include?: Row } = {}) => {
+        const found = store.purchasePayments.find((pp) => matchesWhere(pp, where));
+        if (!found) return null;
+        const out: Row = { ...found };
+        if (include?.purchase) {
+          const purchase = store.purchases.find((p) => p.id === found.purchaseId);
+          out.purchase = purchase
+            ? {
+                ...purchase,
+                branch: store.branches.find((b) => b.id === purchase.branchId) ?? null,
+                supplier: store.suppliers.find((s) => s.id === purchase.supplierId) ?? null,
+                employee: store.employees.find((e) => e.id === purchase.employeeId) ?? null,
+              }
+            : null;
+        }
+        return out;
+      },
+      findUnique: async ({ where, include }: { where: Row; include?: Row }) => {
+        const found = store.purchasePayments.find((pp) => matchesWhere(pp, where));
+        if (!found) return null;
+        const out: Row = { ...found };
+        if (include?.purchase) {
+          const purchase = store.purchases.find((p) => p.id === found.purchaseId);
+          out.purchase = purchase
+            ? {
+                ...purchase,
+                branch: store.branches.find((b) => b.id === purchase.branchId) ?? null,
+                supplier: store.suppliers.find((s) => s.id === purchase.supplierId) ?? null,
+                employee: store.employees.find((e) => e.id === purchase.employeeId) ?? null,
+              }
+            : null;
+        }
+        return out;
+      },
       findMany: async ({
         where,
         include,
@@ -1768,8 +1802,9 @@ export function createInMemoryPrisma() {
         const now = new Date();
         const row = {
           id: uuid(),
-          paidAt: now,
+          paidAt: data.paidAt ? new Date(data.paidAt) : now,
           createdAt: now,
+          status: 'COMPLETED',
           ...data,
           amount: dec(data.amount),
           exchangeRate: dec(data.exchangeRate),

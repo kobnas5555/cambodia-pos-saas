@@ -2,6 +2,7 @@ import {
   createPurchasePaymentSchema,
   createPurchaseSchema,
   listPurchaseItemsQuerySchema,
+  listPurchasePaymentsQuerySchema,
   listPurchasesQuerySchema,
 } from '@cambodia-pos/shared';
 import { Router } from 'express';
@@ -14,6 +15,7 @@ import * as controller from './purchasing.controller';
 
 const router = Router();
 const idParam = z.object({ purchaseId: z.string().uuid() });
+const paymentIdParam = z.object({ paymentId: z.string().uuid() });
 
 router.use(authenticate, requireTenantContext);
 
@@ -23,7 +25,18 @@ router.get(
   validate({ query: listPurchasesQuerySchema }),
   controller.list,
 );
-router.get('/payments', requirePermission('purchases.view'), controller.listPayments);
+router.get(
+  '/payments',
+  requirePermission('purchases.view'),
+  validate({ query: listPurchasePaymentsQuerySchema }),
+  controller.listPayments,
+);
+router.get(
+  '/payments/:paymentId',
+  requirePermission('purchases.view'),
+  validate({ params: paymentIdParam }),
+  controller.getPayment,
+);
 router.get(
   '/items',
   requirePermission('purchases.view'),
@@ -33,6 +46,7 @@ router.get(
 router.post('/', requirePermission('purchases.create'), validate({ body: createPurchaseSchema }), controller.create);
 router.get('/:purchaseId', requirePermission('purchases.view'), validate({ params: idParam }), controller.getOne);
 router.get('/:purchaseId/items', requirePermission('purchases.view'), validate({ params: idParam }), controller.listItems);
+router.get('/:purchaseId/payments', requirePermission('purchases.view'), validate({ params: idParam }), controller.listPayments);
 router.post('/:purchaseId/receive', requirePermission('purchases.create'), validate({ params: idParam }), controller.receive);
 router.post(
   '/:purchaseId/payments',

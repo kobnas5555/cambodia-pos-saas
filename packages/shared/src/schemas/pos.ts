@@ -298,7 +298,25 @@ export const createPurchasePaymentSchema = z.object({
   exchangeRate: positiveDecimalString().optional(),
   paymentMethod: z.enum(PAYMENT_METHODS).default('CASH'),
   referenceNumber: z.string().trim().max(120).optional().nullable(),
+  paidAt: z.string().optional(),
+  status: z.enum(['COMPLETED', 'PENDING', 'VOIDED']).default('COMPLETED').optional(),
 });
+
+export const listPurchasePaymentsQuerySchema = z.object({
+  search: z.string().optional(),
+  purchaseId: z.string().uuid().optional(),
+  branchId: z.string().uuid().optional(),
+  supplierId: z.string().uuid().optional(),
+  paymentMethod: z.string().optional(),
+  currencyCode: z.enum(SUPPORTED_CURRENCIES).optional(),
+  status: z.string().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListPurchasePaymentsQueryInput = z.infer<typeof listPurchasePaymentsQuerySchema>;
 
 export const listPurchasesQuerySchema = z.object({
   search: z.string().optional(),
