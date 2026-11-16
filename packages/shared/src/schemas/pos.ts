@@ -146,8 +146,21 @@ export const updateProductSchema = createProductSchema
   .omit({ openingStock: true, branchId: true })
   .partial()
   .extend({
-    status: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
+    status: z.enum(['ACTIVE', 'ARCHIVED', 'INACTIVE']).optional(),
   });
+
+export const listProductsQuerySchema = z.object({
+  search: z.string().optional(),
+  categoryId: z.string().optional(),
+  unitId: z.string().optional(),
+  status: z.enum(['ALL', 'ACTIVE', 'ARCHIVED', 'INACTIVE']).optional().default('ALL'),
+  branchId: z.string().optional(),
+  trackInventory: z.enum(['ALL', 'TRUE', 'FALSE']).optional().default('ALL'),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListProductsQueryInput = z.infer<typeof listProductsQuerySchema>;
 
 // ============================================================================
 // Phase 4 & 5: Customers, Orders & Payments

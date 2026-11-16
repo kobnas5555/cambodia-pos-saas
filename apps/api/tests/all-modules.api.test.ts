@@ -818,7 +818,7 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(prod2Res.status).toBe(201);
     const chipsId = prod2Res.body.data.id;
 
-    // Duplicate SKU & duplicate barcode rejected
+    // Duplicate SKU & duplicate barcode rejected within tenant
     const dupBarcodeRes = await request(app)
       .post('/api/v1/products')
       .set('Authorization', `Bearer ${token}`)
@@ -833,6 +833,21 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
       });
     expect(dupBarcodeRes.status).toBe(409);
     expect(dupBarcodeRes.body.error.code).toBe('BARCODE_TAKEN');
+
+    const dupSkuRes = await request(app)
+      .post('/api/v1/products')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        categoryId: bevCategoryId,
+        unitId,
+        sku: 'DRK-WATER-500',
+        barcode: '8859999999999',
+        name: 'Duplicate SKU Test',
+        costPrice: '0.20',
+        sellingPrice: '0.50',
+      });
+    expect(dupSkuRes.status).toBe(409);
+    expect(dupSkuRes.body.error.code).toBe('SKU_TAKEN');
 
     // Cross-tenant category rejected on update
     const badCatUpdate = await request(app)
@@ -855,6 +870,57 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
       });
     expect(updProdRes.status).toBe(200);
     expect(updProdRes.body.data.sku).toBe('DRK-WATER-550');
+
+    // Duplicate SKU & barcode on update rejected in same tenant
+    const dupSkuUpdate = await request(app)
+      .patch(`/api/v1/products/${chipsId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ sku: 'DRK-WATER-550' });
+    expect(dupSkuUpdate.status).toBe(409);
+    expect(dupSkuUpdate.body.error.code).toBe('SKU_TAKEN');
+
+    const dupBarUpdate = await request(app)
+      .patch(`/api/v1/products/${chipsId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ barcode: '8851110005509' });
+    expect(dupBarUpdate.status).toBe(409);
+    expect(dupBarUpdate.body.error.code).toBe('BARCODE_TAKEN');
+
+    // Cross-tenant duplicate SKU/barcode allowed (strict tenant isolation)
+    const foreignCatRes = await request(app)
+      .post('/api/v1/categories')
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({ name: 'Foreign Cat' });
+    const foreignUnitRes = await request(app)
+      .post('/api/v1/units')
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({ name: 'Foreign Unit', abbreviation: 'fu' });
+    const crossTenantProd = await request(app)
+      .post('/api/v1/products')
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({
+        categoryId: foreignCatRes.body.data.id,
+        unitId: foreignUnitRes.body.data.id,
+        sku: 'DRK-WATER-550', // Same SKU in different tenant
+        barcode: '8851110005509', // Same Barcode in different tenant
+        name: 'Isolated Store Water',
+        costPrice: '0.25',
+        sellingPrice: '0.60',
+      });
+    expect(crossTenantProd.status).toBe(201);
+    expect(crossTenantProd.body.data.sku).toBe('DRK-WATER-550');
+
+    // Pagination query test
+    const pagedProducts = await request(app)
+      .get('/api/v1/products?page=1&limit=1')
+      .set('Authorization', `Bearer ${token}`);
+    expect(pagedProducts.status).toBe(200);
+    expect(pagedProducts.body.data).toHaveLength(1);
+    expect(pagedProducts.body.pagination).toBeDefined();
+    expect(pagedProducts.body.pagination.page).toBe(1);
+    expect(pagedProducts.body.pagination.limit).toBe(1);
+    expect(pagedProducts.body.pagination.total).toBe(2);
+    expect(pagedProducts.body.pagination.totalPages).toBe(2);
 
     // 5. Search by name / SKU / barcode & Filter by category & status
     const searchByBarcode = await request(app)

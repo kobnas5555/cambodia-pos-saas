@@ -63,6 +63,7 @@ interface SupplierRow {
 
 interface ProductRow {
   id: string;
+  tenantId?: string;
   categoryId: string;
   unitId: string;
   sku: string;
@@ -78,6 +79,8 @@ interface ProductRow {
   stockQuantity: string;
   category?: { id: string; name: string };
   unit?: { id: string; name: string; abbreviation: string };
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 type TabKey = 'products' | 'categories' | 'units' | 'suppliers';
@@ -118,8 +121,10 @@ export default function ProductsCatalogPage() {
   const [tab, setTab] = useState<TabKey>('products');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [unitFilter, setUnitFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [stockFilter, setStockFilter] = useState<StockFilterKey>('ALL');
+  const [trackFilter, setTrackFilter] = useState<'ALL' | 'TRACKED' | 'UNTRACKED'>('ALL');
   const [prodPage, setProdPage] = useState<number>(1);
   const [prodPageSize, setProdPageSize] = useState<number>(10);
 
@@ -135,6 +140,7 @@ export default function ProductsCatalogPage() {
   const [prodModal, setProdModal] = useState(false);
   const [editingProd, setEditingProd] = useState<ProductRow | null>(null);
   const [pName, setPName] = useState('');
+  const [pDescription, setPDescription] = useState('');
   const [pSku, setPSku] = useState('');
   const [pBarcode, setPBarcode] = useState('');
   const [pCategoryId, setPCategoryId] = useState('');
@@ -145,6 +151,7 @@ export default function ProductsCatalogPage() {
   const [pAlert, setPAlert] = useState('5');
   const [pOpeningStock, setPOpeningStock] = useState('0');
   const [pTrack, setPTrack] = useState(true);
+  const [pStatus, setPStatus] = useState<'ACTIVE' | 'ARCHIVED'>('ACTIVE');
 
   // Category modal state
   const [catModal, setCatModal] = useState(false);
@@ -221,6 +228,7 @@ export default function ProductsCatalogPage() {
     if (prod) {
       setEditingProd(prod);
       setPName(prod.name);
+      setPDescription(prod.description ?? '');
       setPSku(prod.sku);
       setPBarcode(prod.barcode ?? '');
       setPCategoryId(prod.categoryId);
@@ -231,9 +239,11 @@ export default function ProductsCatalogPage() {
       setPAlert(prod.lowStockAlert);
       setPTrack(prod.trackInventory);
       setPOpeningStock('0');
+      setPStatus(prod.status === 'ARCHIVED' ? 'ARCHIVED' : 'ACTIVE');
     } else {
       setEditingProd(null);
       setPName('');
+      setPDescription('');
       setPSku('');
       setPBarcode('');
       setPCategoryId(categories[0]?.id ?? '');
@@ -244,6 +254,7 @@ export default function ProductsCatalogPage() {
       setPAlert('5');
       setPTrack(true);
       setPOpeningStock('0');
+      setPStatus('ACTIVE');
     }
     setProdModal(true);
   };
@@ -269,43 +280,56 @@ export default function ProductsCatalogPage() {
         await apiRequest(`/products/${editingProd.id}`, {
           method: 'PATCH',
           body: JSON.stringify({
-            name: pName,
-            sku: pSku,
-            barcode: pBarcode || null,
+            name: pName.trim(),
+            description: pDescription.trim() || null,
+            sku: pSku.trim().toUpperCase(),
+            barcode: pBarcode.trim() || null,
             categoryId: pCategoryId,
             unitId: pUnitId,
             costPrice: pCost,
             sellingPrice: pPrice,
-            wholesalePrice: pWholesale || null,
+            wholesalePrice: pWholesale.trim() || null,
             lowStockAlert: pAlert,
             trackInventory: pTrack,
+            status: pStatus,
           }),
         });
-        setFeedback('Product updated successfully.');
+        setFeedback(`Product "${pName}" updated successfully.`);
       } else {
         await apiRequest('/products', {
           method: 'POST',
           body: JSON.stringify({
-            name: pName,
-            sku: pSku,
-            barcode: pBarcode || null,
+            name: pName.trim(),
+            description: pDescription.trim() || null,
+            sku: pSku.trim().toUpperCase(),
+            barcode: pBarcode.trim() || null,
             categoryId: pCategoryId,
             unitId: pUnitId,
             costPrice: pCost,
             sellingPrice: pPrice,
-            wholesalePrice: pWholesale || null,
+            wholesalePrice: pWholesale.trim() || null,
             lowStockAlert: pAlert,
             trackInventory: pTrack,
             openingStock: pOpeningStock,
             branchId: activeBranch?.id,
           }),
         });
-        setFeedback('Product created successfully.');
+        setFeedback(`Product "${pName}" created successfully.`);
       }
       setProdModal(false);
       await loadAll();
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : 'Unable to save product');
+    } catch (err: any) {
+      if (err instanceof ApiClientError) {
+        if (err.code === 'SKU_TAKEN') {
+          setError(`SKU "${pSku.toUpperCase()}" already exists in this workspace. SKU must be unique.`);
+        } else if (err.code === 'BARCODE_TAKEN') {
+          setError(`Barcode "${pBarcode}" already exists in this workspace. Barcode must be unique.`);
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError('Unable to save product');
+      }
     }
   };
 
@@ -331,6 +355,25 @@ export default function ProductsCatalogPage() {
       await loadAll();
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : 'Restore failed');
+    }
+  };
+
+  const handleDeleteProduct = async (prod: ProductRow) => {
+    if (!confirm(`Are you sure you want to delete / archive "${prod.name}" (${prod.sku})? If it has order or purchase history, it will be safely archived instead.`)) {
+      return;
+    }
+    setError(null);
+    try {
+      await apiRequest(`/products/${prod.id}?mode=permanent`, { method: 'DELETE' });
+      setFeedback(`Product "${prod.name}" removed from catalog.`);
+      await loadAll();
+    } catch (err: any) {
+      if (err instanceof ApiClientError && err.code === 'PRODUCT_HAS_HISTORY') {
+        await handleArchiveProduct(prod.id);
+        setFeedback(`Product "${prod.name}" has historical transactions and was safely archived instead.`);
+      } else {
+        setError(err instanceof ApiClientError ? err.message : 'Unable to delete product');
+      }
     }
   };
 
@@ -515,32 +558,41 @@ export default function ProductsCatalogPage() {
   ).length;
 
   // Filtered Lists
-  const q = search.trim().toLowerCase();
-  const filteredProducts = products.filter((p) => {
-    const matchesSearch =
-      !q ||
-      p.name.toLowerCase().includes(q) ||
-      p.sku.toLowerCase().includes(q) ||
-      (p.barcode ?? '').toLowerCase().includes(q) ||
-      (p.category?.name ?? '').toLowerCase().includes(q);
+  const filteredProducts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return products.filter((p) => {
+      const matchesSearch =
+        !q ||
+        p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        (p.barcode ?? '').toLowerCase().includes(q) ||
+        (p.description ?? '').toLowerCase().includes(q) ||
+        (p.category?.name ?? '').toLowerCase().includes(q) ||
+        (p.unit?.name ?? '').toLowerCase().includes(q);
 
-    if (!matchesSearch) return false;
+      if (!matchesSearch) return false;
+      if (categoryFilter !== 'ALL' && p.categoryId !== categoryFilter) return false;
+      if (unitFilter !== 'ALL' && p.unitId !== unitFilter) return false;
+      if (statusFilter !== 'ALL' && p.status !== statusFilter) return false;
+      if (trackFilter === 'TRACKED' && !p.trackInventory) return false;
+      if (trackFilter === 'UNTRACKED' && p.trackInventory) return false;
 
-    if (stockFilter === 'LOW') {
-      return p.trackInventory && Number(p.stockQuantity) <= Number(p.lowStockAlert) && Number(p.stockQuantity) > 0;
-    }
-    if (stockFilter === 'OUT') {
-      return p.trackInventory && Number(p.stockQuantity) <= 0;
-    }
-    if (stockFilter === 'IN') {
-      return !p.trackInventory || Number(p.stockQuantity) > Number(p.lowStockAlert);
-    }
-    return true;
-  });
+      if (stockFilter === 'LOW') {
+        return p.trackInventory && Number(p.stockQuantity) <= Number(p.lowStockAlert) && Number(p.stockQuantity) > 0;
+      }
+      if (stockFilter === 'OUT') {
+        return p.trackInventory && Number(p.stockQuantity) <= 0;
+      }
+      if (stockFilter === 'IN') {
+        return !p.trackInventory || Number(p.stockQuantity) > Number(p.lowStockAlert);
+      }
+      return true;
+    });
+  }, [products, search, categoryFilter, unitFilter, statusFilter, stockFilter, trackFilter]);
 
   useEffect(() => {
     setProdPage(1);
-  }, [search, categoryFilter, statusFilter, stockFilter]);
+  }, [search, categoryFilter, unitFilter, statusFilter, stockFilter, trackFilter]);
 
   const paginatedProducts = useMemo(() => {
     const start = (prodPage - 1) * prodPageSize;
@@ -823,6 +875,20 @@ export default function ProductsCatalogPage() {
                 </select>
 
                 <select
+                  aria-label="Filter by unit"
+                  value={unitFilter}
+                  onChange={(e) => setUnitFilter(e.target.value)}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="ALL">All Units</option>
+                  {units.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({u.abbreviation})
+                    </option>
+                  ))}
+                </select>
+
+                <select
                   aria-label="Filter by stock"
                   value={stockFilter}
                   onChange={(e) => setStockFilter(e.target.value as StockFilterKey)}
@@ -835,6 +901,17 @@ export default function ProductsCatalogPage() {
                 </select>
 
                 <select
+                  aria-label="Filter by inventory tracking"
+                  value={trackFilter}
+                  onChange={(e) => setTrackFilter(e.target.value as any)}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="ALL">All Tracking</option>
+                  <option value="TRACKED">Tracked Stock</option>
+                  <option value="UNTRACKED">Unlimited / Untracked</option>
+                </select>
+
+                <select
                   aria-label="Filter by status"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
@@ -844,6 +921,39 @@ export default function ProductsCatalogPage() {
                   <option value="ACTIVE">{t.common.active}</option>
                   <option value="ARCHIVED">{t.common.archived}</option>
                 </select>
+
+                <div className="relative w-full sm:w-60">
+                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search name, SKU, barcode..."
+                    className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm shadow-sm focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                {(search ||
+                  categoryFilter !== 'ALL' ||
+                  unitFilter !== 'ALL' ||
+                  stockFilter !== 'ALL' ||
+                  trackFilter !== 'ALL' ||
+                  statusFilter !== 'ALL') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch('');
+                      setCategoryFilter('ALL');
+                      setUnitFilter('ALL');
+                      setStockFilter('ALL');
+                      setTrackFilter('ALL');
+                      setStatusFilter('ALL');
+                    }}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Reset
+                  </button>
+                )}
               </>
             )}
 
@@ -937,18 +1047,7 @@ export default function ProductsCatalogPage() {
               </>
             )}
 
-            {tab !== 'units' && tab !== 'categories' && tab !== 'suppliers' && (
-              <div className="relative w-full sm:w-60">
-                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder={t.common.search}
-                  className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm shadow-sm focus:border-emerald-500 focus:outline-none"
-                />
-              </div>
-            )}
+
           </div>
         </div>
 
@@ -984,7 +1083,7 @@ export default function ProductsCatalogPage() {
                     <th className="px-4 py-3">{t.catalog.costPrice}</th>
                     <th className="px-4 py-3">{t.catalog.sellingPrice}</th>
                     <th className="px-4 py-3">{t.catalog.margin}</th>
-                    <th className="px-4 py-3">Stock</th>
+                    <th className="px-4 py-3">Inventory & Alert</th>
                     <th className="px-4 py-3">{t.common.status}</th>
                     <th className="px-4 py-3 text-right">{t.common.actions}</th>
                   </tr>
@@ -1016,15 +1115,33 @@ export default function ProductsCatalogPage() {
                         <tr key={p.id} className="hover:bg-slate-50/50">
                           <td className="px-4 py-3">
                             <div className="font-semibold text-slate-900">{p.name}</div>
-                            <div className="text-xs text-slate-400">Unit: {p.unit?.name} ({p.unit?.abbreviation})</div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="font-mono text-[10px] text-slate-400" title={p.id}>
+                                ID: {p.id.slice(0, 8)}
+                              </span>
+                              {p.description && (
+                                <span className="max-w-[180px] truncate text-xs text-slate-500" title={p.description}>
+                                  • {p.description}
+                                </span>
+                              )}
+                            </div>
+                            <div className="mt-0.5 text-xs text-slate-400">
+                              Unit: {p.unit?.name ?? '—'} ({p.unit?.abbreviation ?? '—'})
+                            </div>
                           </td>
                           <td className="px-4 py-3">
-                            <div className="font-mono text-xs font-medium text-slate-800">{p.sku}</div>
-                            {p.barcode && (
-                              <div className="flex items-center gap-1 font-mono text-[11px] text-slate-500">
-                                <Barcode className="h-3 w-3" />
+                            <div>
+                              <span className="rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 font-mono text-xs font-semibold text-slate-800">
+                                {p.sku}
+                              </span>
+                            </div>
+                            {p.barcode ? (
+                              <div className="mt-1 flex items-center gap-1 font-mono text-[11px] text-slate-600">
+                                <Barcode className="h-3 w-3 text-slate-400" />
                                 {p.barcode}
                               </div>
+                            ) : (
+                              <div className="mt-1 text-[10px] italic text-slate-400">No barcode</div>
                             )}
                           </td>
                           <td className="px-4 py-3">
@@ -1045,6 +1162,11 @@ export default function ProductsCatalogPage() {
                             <div className="text-[11px] text-slate-500">
                               ≈ {formatCurrency(counterpartSell, secondaryCur)}
                             </div>
+                            {p.wholesalePrice && Number(p.wholesalePrice) > 0 && (
+                              <div className="mt-0.5 text-[10px] font-medium text-sky-700">
+                                WS: {formatCurrency(p.wholesalePrice, cur)}
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
@@ -1058,19 +1180,28 @@ export default function ProductsCatalogPage() {
                                 ∞ Unlimited
                               </span>
                             ) : isOut ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700">
-                                <XCircle className="h-3 w-3" />
-                                0 ({t.catalog.outOfStock})
-                              </span>
+                              <div>
+                                <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700">
+                                  <XCircle className="h-3 w-3" />
+                                  0 ({t.catalog.outOfStock})
+                                </span>
+                                <span className="mt-0.5 block text-[10px] text-slate-400">Alert ≤ {p.lowStockAlert}</span>
+                              </div>
                             ) : isLow ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                                <AlertTriangle className="h-3 w-3" />
-                                {p.stockQuantity} ({t.catalog.lowStock})
-                              </span>
+                              <div>
+                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  {p.stockQuantity} ({t.catalog.lowStock})
+                                </span>
+                                <span className="mt-0.5 block text-[10px] text-slate-400">Alert ≤ {p.lowStockAlert}</span>
+                              </div>
                             ) : (
-                              <span className="inline-flex items-center gap-1 font-semibold text-slate-800">
-                                {p.stockQuantity}
-                              </span>
+                              <div>
+                                <span className="inline-flex items-center gap-1 font-semibold text-slate-800">
+                                  {p.stockQuantity} {p.unit?.abbreviation ?? ''}
+                                </span>
+                                <span className="mt-0.5 block text-[10px] text-slate-400">Alert ≤ {p.lowStockAlert}</span>
+                              </div>
                             )}
                           </td>
                           <td className="px-4 py-3">
@@ -1085,12 +1216,12 @@ export default function ProductsCatalogPage() {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <div className="inline-flex gap-2">
+                            <div className="inline-flex items-center justify-end gap-1.5">
                               {canUpdate && (
                                 <button
                                   type="button"
                                   onClick={() => openProductModal(p)}
-                                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
                                 >
                                   <Edit3 className="h-3 w-3" /> {t.common.edit}
                                 </button>
@@ -1099,7 +1230,7 @@ export default function ProductsCatalogPage() {
                                 <button
                                   type="button"
                                   onClick={() => void handleArchiveProduct(p.id)}
-                                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
                                 >
                                   <Archive className="h-3 w-3" /> {t.common.archive}
                                 </button>
@@ -1108,9 +1239,18 @@ export default function ProductsCatalogPage() {
                                 <button
                                   type="button"
                                   onClick={() => void handleRestoreProduct(p.id)}
-                                  className="inline-flex items-center gap-1 rounded border border-emerald-200 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                                  className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
                                 >
                                   <RotateCcw className="h-3 w-3" /> {t.common.activate}
+                                </button>
+                              )}
+                              {canArchive && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteProduct(p)}
+                                  className="rounded border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                                >
+                                  Delete
                                 </button>
                               )}
                             </div>
@@ -1457,6 +1597,10 @@ export default function ProductsCatalogPage() {
               </div>
 
               <form onSubmit={saveProduct} className="mt-4 space-y-4">
+                <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
+                  <span className="font-semibold">Tenant Isolation:</span> SKU and Barcode must be unique within your store workspace.
+                </div>
+
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-slate-700">Product Name</label>
@@ -1465,6 +1609,17 @@ export default function ProductsCatalogPage() {
                       value={pName}
                       onChange={(e) => setPName(e.target.value)}
                       placeholder="e.g. Angkor Beer 330ml / ស្រាបៀរអង្គរ"
+                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-700">Description / Details</label>
+                    <textarea
+                      rows={2}
+                      value={pDescription}
+                      onChange={(e) => setPDescription(e.target.value)}
+                      placeholder="Optional product description, pack details, notes..."
                       className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
                     />
                   </div>
@@ -1609,6 +1764,20 @@ export default function ProductsCatalogPage() {
                       className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
                     />
                   </div>
+
+                  {editingProd && (
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-slate-700">Product Status</label>
+                      <select
+                        value={pStatus}
+                        onChange={(e) => setPStatus(e.target.value as 'ACTIVE' | 'ARCHIVED')}
+                        className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                      >
+                        <option value="ACTIVE">ACTIVE (In POS & Inventory)</option>
+                        <option value="ARCHIVED">ARCHIVED (Inactive / Hidden)</option>
+                      </select>
+                    </div>
+                  )}
 
                   {!editingProd && (
                     <div className="sm:col-span-2">

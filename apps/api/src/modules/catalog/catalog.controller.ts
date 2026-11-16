@@ -109,13 +109,17 @@ export const deleteSupplier = asyncHandler(async (req: Request, res: Response) =
 
 // Products
 export const getProducts = asyncHandler(async (req: Request, res: Response) => {
-  const data = await catalogService.listProducts(req.tenant!.tenantId, {
-    search: typeof req.query.search === 'string' ? req.query.search : undefined,
-    categoryId: typeof req.query.categoryId === 'string' ? req.query.categoryId : undefined,
-    status: typeof req.query.status === 'string' ? req.query.status : undefined,
-    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
+  const result = await catalogService.listProducts(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data: result.items,
+    pagination: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+    },
   });
-  res.json({ success: true, data });
 });
 
 export const postProduct = asyncHandler(async (req: Request, res: Response) => {
@@ -134,7 +138,13 @@ export const patchProduct = asyncHandler(async (req: Request, res: Response) => 
 });
 
 export const deleteProduct = asyncHandler(async (req: Request, res: Response) => {
-  const data = await catalogService.archiveProduct(req.tenant!.tenantId, req.params.productId, actor(req));
+  const mode = req.query.mode as string | undefined;
+  const data = await catalogService.deleteProduct(
+    req.tenant!.tenantId,
+    req.params.productId,
+    actor(req),
+    mode,
+  );
   res.json({ success: true, data });
 });
 

@@ -1018,12 +1018,34 @@ export function createInMemoryPrisma() {
       },
       findFirst: async ({ where }: { where: Row }) =>
         store.products.find((p) => matchesWhere(p, where)) ?? null,
-      findMany: async ({ where, include, orderBy }: { where?: Row; include?: Row; orderBy?: any } = {}) =>
-        applyOrderBy(
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: {
+        where?: Row;
+        include?: Row;
+        orderBy?: any;
+        skip?: number;
+        take?: number;
+      } = {}) => {
+        let list = applyOrderBy(
           store.products.filter((p) => matchesWhere(p, where)),
           orderBy,
-        ).map((p) => enrichProduct(p, include)),
+        );
+        if (typeof skip === 'number') list = list.slice(skip);
+        if (typeof take === 'number') list = list.slice(0, take);
+        return list.map((p) => enrichProduct(p, include));
+      },
       create: async ({ data, include }: { data: Row; include?: Row }) => {
+        if (data.sku && store.products.some((p) => p.tenantId === data.tenantId && p.sku === data.sku)) {
+          throw p2002();
+        }
+        if (data.barcode && store.products.some((p) => p.tenantId === data.tenantId && p.barcode === data.barcode)) {
+          throw p2002();
+        }
         const now = new Date();
         const row = {
           id: uuid(),
@@ -1046,6 +1068,13 @@ export function createInMemoryPrisma() {
       update: async ({ where, data, include }: { where: Row; data: Row; include?: Row }) => {
         const idx = store.products.findIndex((p) => matchesWhere(p, where));
         if (idx === -1) throw new Error('Product not found');
+        const current = store.products[idx];
+        if (data.sku && store.products.some((p) => p.id !== current.id && p.tenantId === current.tenantId && p.sku === data.sku)) {
+          throw p2002();
+        }
+        if (data.barcode && store.products.some((p) => p.id !== current.id && p.tenantId === current.tenantId && p.barcode === data.barcode)) {
+          throw p2002();
+        }
         const next = { ...store.products[idx], ...data, updatedAt: new Date() };
         if (data.costPrice !== undefined) next.costPrice = dec(data.costPrice);
         if (data.sellingPrice !== undefined) next.sellingPrice = dec(data.sellingPrice);
@@ -1053,6 +1082,12 @@ export function createInMemoryPrisma() {
         if (data.lowStockAlert !== undefined) next.lowStockAlert = dec(data.lowStockAlert);
         store.products[idx] = next;
         return enrichProduct(next, include);
+      },
+      delete: async ({ where }: { where: Row }) => {
+        const idx = store.products.findIndex((p) => matchesWhere(p, where));
+        if (idx === -1) throw new Error('Product not found');
+        const [removed] = store.products.splice(idx, 1);
+        return { ...removed };
       },
     },
 
