@@ -168,6 +168,16 @@ export function createInMemoryPrisma() {
         if (!emp || !matchesWhere(emp, val)) return false;
         continue;
       }
+      if (key === 'cashierEmployee' && val && typeof val === 'object') {
+        const emp = store.employees.find((e) => e.id === row.cashierEmployeeId);
+        if (!emp || !matchesWhere(emp, val)) return false;
+        continue;
+      }
+      if (key === 'shift' && val && typeof val === 'object') {
+        const shift = store.shifts.find((s) => s.id === row.shiftId);
+        if (!shift || !matchesWhere(shift, val)) return false;
+        continue;
+      }
       if (key === 'branch' && val && typeof val === 'object') {
         const branch = store.branches.find((b) => b.id === row.branchId);
         if (!branch || !matchesWhere(branch, val)) return false;
@@ -330,6 +340,9 @@ export function createInMemoryPrisma() {
     }
     if (include?.cashierEmployee) {
       out.cashierEmployee = store.employees.find((e) => e.id === o.cashierEmployeeId) ?? null;
+    }
+    if (include?.shift) {
+      out.shift = o.shiftId ? store.shifts.find((s) => s.id === o.shiftId) ?? null : null;
     }
     if (include?.orderItems) {
       const items = store.orderItems.filter((oi) => oi.orderId === o.id);
@@ -1196,13 +1209,27 @@ export function createInMemoryPrisma() {
         const found = store.orders.find((o) => matchesWhere(o, where));
         return found ? enrichOrder(found, include) : null;
       },
-      findMany: async ({ where, include, orderBy, take }: { where?: Row; include?: Row; orderBy?: any; take?: number } = {}) =>
-        applyOrderBy(
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: {
+        where?: Row;
+        include?: Row;
+        orderBy?: any;
+        skip?: number;
+        take?: number;
+      } = {}) => {
+        let list = applyOrderBy(
           store.orders.filter((o) => matchesWhere(o, where)),
           orderBy,
-        )
-          .slice(0, take ?? 200)
-          .map((o) => enrichOrder(o, include)),
+        );
+        if (typeof skip === 'number') list = list.slice(skip);
+        if (typeof take === 'number') list = list.slice(0, take);
+        return list.map((o) => enrichOrder(o, include));
+      },
       create: async ({ data, include }: { data: Row; include?: Row }) => {
         const now = new Date();
         const { orderItems, payments, ...scalars } = data;

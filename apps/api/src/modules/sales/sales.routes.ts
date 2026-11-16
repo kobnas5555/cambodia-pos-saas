@@ -1,4 +1,8 @@
-import { createOrderSchema, createSaleReturnSchema } from '@cambodia-pos/shared';
+import {
+  createOrderSchema,
+  createSaleReturnSchema,
+  listOrdersQuerySchema,
+} from '@cambodia-pos/shared';
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../common/middleware/authenticate';
@@ -12,7 +16,7 @@ const returnIdParam = z.object({ returnId: z.string().uuid() });
 
 export const ordersRouter = Router();
 ordersRouter.use(authenticate, requireTenantContext);
-ordersRouter.get('/', requirePermission('sales.view'), controller.getOrders);
+ordersRouter.get('/', requirePermission('sales.view'), validate({ query: listOrdersQuerySchema }), controller.getOrders);
 ordersRouter.post('/', requirePermission('sales.create'), validate({ body: createOrderSchema }), controller.postOrder);
 ordersRouter.get('/:orderId', requirePermission('sales.view'), validate({ params: idParam }), controller.getOrder);
 

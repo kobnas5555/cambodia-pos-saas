@@ -380,6 +380,44 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(order.totalAmount).toBe('30.00');
     expect(order.paidAmount).toBe('35.00');
     expect(order.changeAmount).toBe('5.00');
+    expect(order.id).toBeDefined();
+    expect(order.tenantId).toBeDefined();
+    expect(order.branchId).toBe(branchId);
+    expect(order.customerId).toBe(customerId);
+    expect(order.cashierEmployeeId).toBeDefined();
+    expect(order.shiftId).toBe(shiftId);
+    expect(order.orderNumber).toBeDefined();
+    expect(Number(order.subtotal)).toBe(30);
+    expect(Number(order.discountAmount)).toBe(0);
+    expect(Number(order.taxAmount)).toBe(0);
+    expect(order.currencyCode).toBe('USD');
+    expect(order.exchangeRate).toBeDefined();
+    expect(order.status).toBe('COMPLETED');
+    expect(order.completedAt).toBeDefined();
+    expect(order.createdAt).toBeDefined();
+    expect(order.updatedAt).toBeDefined();
+
+    // Verify orders list endpoint with pagination and search
+    const ordersListRes = await request(app)
+      .get(`/api/v1/orders?branchId=${branchId}&status=COMPLETED&page=1&limit=10`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(ordersListRes.status).toBe(200);
+    expect(ordersListRes.body.data.length).toBeGreaterThanOrEqual(1);
+    expect(ordersListRes.body.pagination).toBeDefined();
+    expect(ordersListRes.body.pagination.page).toBe(1);
+    expect(ordersListRes.body.pagination.limit).toBe(10);
+    expect(ordersListRes.body.pagination.total).toBeGreaterThanOrEqual(1);
+
+    // Verify single order detail endpoint includes shift and items
+    const singleOrderRes = await request(app)
+      .get(`/api/v1/orders/${order.id}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(singleOrderRes.status).toBe(200);
+    expect(singleOrderRes.body.data.orderNumber).toBe(order.orderNumber);
+    expect(singleOrderRes.body.data.shift).toBeDefined();
+    expect(singleOrderRes.body.data.orderItems.length).toBe(1);
+    expect(singleOrderRes.body.data.payments.length).toBe(2);
+
     const orderItemId = order.orderItems[0].id;
 
     // Net cash collected for shift = 15.00 cash - 5.00 change = 10.00 -> expectedCash = 110.00

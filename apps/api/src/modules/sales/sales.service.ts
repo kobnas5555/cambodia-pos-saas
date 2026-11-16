@@ -20,30 +20,81 @@ import type { ActorInfo } from '../tenants/tenants.service';
 
 export async function listOrders(
   tenantId: string,
-  filters: { branchId?: string; status?: string; search?: string },
+  filters: {
+    branchId?: string;
+    customerId?: string;
+    shiftId?: string;
+    status?: string;
+    currencyCode?: string;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+    page?: number | string;
+    limit?: number | string;
+  } | string = {},
 ) {
-  return prisma.order.findMany({
-    where: {
-      tenantId,
-      ...(filters.branchId ? { branchId: filters.branchId } : {}),
-      ...(filters.status ? { status: filters.status } : {}),
-      ...(filters.search
-        ? {
-            OR: [
-              { orderNumber: { contains: filters.search, mode: 'insensitive' } },
-              { customer: { name: { contains: filters.search, mode: 'insensitive' } } },
-            ],
-          }
-        : {}),
-    },
+  const query = typeof filters === 'string' ? { search: filters } : filters;
+  const where: any = {
+    tenantId,
+    ...(query.branchId ? { branchId: query.branchId } : {}),
+    ...(query.customerId ? { customerId: query.customerId } : {}),
+    ...(query.shiftId ? { shiftId: query.shiftId } : {}),
+    ...(query.currencyCode ? { currencyCode: query.currencyCode } : {}),
+    ...(query.status && query.status !== 'ALL' ? { status: query.status } : {}),
+    ...(query.startDate || query.endDate
+      ? {
+          createdAt: {
+            ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+            ...(query.endDate ? { lte: new Date(query.endDate) } : {}),
+          },
+        }
+      : {}),
+    ...(query.search
+      ? {
+          OR: [
+            { orderNumber: { contains: query.search, mode: 'insensitive' } },
+            { notes: { contains: query.search, mode: 'insensitive' } },
+            { customer: { name: { contains: query.search, mode: 'insensitive' } } },
+            { customer: { customerCode: { contains: query.search, mode: 'insensitive' } } },
+            { customer: { phone: { contains: query.search, mode: 'insensitive' } } },
+            { cashierEmployee: { name: { contains: query.search, mode: 'insensitive' } } },
+            { cashierEmployee: { employeeCode: { contains: query.search, mode: 'insensitive' } } },
+            { branch: { name: { contains: query.search, mode: 'insensitive' } } },
+          ],
+        }
+      : {}),
+  };
+
+  const total = await prisma.order.count({ where });
+
+  const hasPagination = query.page !== undefined || query.limit !== undefined;
+  const page = query.page ? Math.max(1, Number(query.page)) : 1;
+  const limit = query.limit ? Math.min(100, Math.max(1, Number(query.limit))) : (hasPagination ? 50 : total || 50);
+  const skip = hasPagination ? (page - 1) * limit : undefined;
+  const take = hasPagination ? limit : undefined;
+
+  const orders = await prisma.order.findMany({
+    where,
     include: {
       branch: { select: { id: true, name: true, branchCode: true } },
-      customer: { select: { id: true, name: true, customerCode: true } },
+      customer: { select: { id: true, name: true, customerCode: true, phone: true } },
       cashierEmployee: { select: { id: true, name: true, employeeCode: true } },
-      _count: { select: { orderItems: true, payments: true } },
+      shift: { select: { id: true, shiftNumber: true, status: true } },
+      _count: { select: { orderItems: true, payments: true, saleReturns: true } },
     },
     orderBy: { createdAt: 'desc' },
-    take: 100,
+    ...(skip !== undefined ? { skip } : {}),
+    ...(take !== undefined ? { take } : {}),
+  });
+
+  const totalPages = Math.ceil(total / (limit || 1)) || 1;
+
+  return Object.assign(orders, {
+    items: orders,
+    total,
+    page,
+    limit,
+    totalPages,
   });
 }
 
@@ -55,6 +106,7 @@ export async function getOrderById(tenantId: string, orderId: string) {
       branch: { select: { id: true, name: true, branchCode: true, phone: true, address: true } },
       customer: { select: { id: true, name: true, customerCode: true, phone: true } },
       cashierEmployee: { select: { id: true, name: true, employeeCode: true } },
+      shift: { select: { id: true, shiftNumber: true, status: true, openedAt: true, closedAt: true } },
       orderItems: {
         include: {
           product: { select: { id: true, trackInventory: true } },

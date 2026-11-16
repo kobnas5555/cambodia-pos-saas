@@ -217,6 +217,21 @@ export const createOrderSchema = z.object({
   payments: z.array(orderPaymentInputSchema).min(1, 'At least one payment is required'),
 });
 
+export const listOrdersQuerySchema = z.object({
+  search: z.string().optional(),
+  branchId: z.string().uuid().optional(),
+  customerId: z.string().uuid().optional(),
+  shiftId: z.string().uuid().optional(),
+  status: z.string().optional(),
+  currencyCode: z.enum(SUPPORTED_CURRENCIES).optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListOrdersQueryInput = z.infer<typeof listOrdersQuerySchema>;
+
 // ============================================================================
 // Phase 6: Purchasing & Purchase Payments
 // ============================================================================

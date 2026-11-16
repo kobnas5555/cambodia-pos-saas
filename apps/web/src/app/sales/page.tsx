@@ -7,9 +7,34 @@ import {
   type CurrencyCode,
   type PaymentMethod,
 } from '@cambodia-pos/shared';
-import { Download, Eye, Plus, Printer, RotateCcw, Search, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Building2,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  Copy,
+  DollarSign,
+  Download,
+  Eye,
+  FileText,
+  Plus,
+  Printer,
+  Receipt,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  ShoppingBag,
+  Sparkles,
+  TrendingUp,
+  User,
+  Users,
+  X,
+} from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppShell } from '@/components/AppShell';
+import { DataTablePagination } from '@/components/DataTablePagination';
 import { useAuth } from '@/contexts/AuthContext';
 import { useI18n } from '@/contexts/I18nContext';
 import { apiRequest, ApiClientError } from '@/lib/api';
@@ -17,24 +42,33 @@ import { downloadOrderReceiptHtml } from '@/lib/receipt';
 
 interface OrderSummary {
   id: string;
+  tenantId?: string;
+  branchId?: string;
+  customerId?: string | null;
+  cashierEmployeeId?: string;
+  shiftId?: string | null;
   orderNumber: string;
-  totalAmount: string;
-  paidAmount: string;
-  currencyCode: CurrencyCode;
-  status: string;
-  createdAt: string;
-  branch: { name: string };
-  customer: { name: string } | null;
-  cashierEmployee: { name: string };
-}
-
-interface OrderDetail extends OrderSummary {
   subtotal: string;
   discountAmount: string;
   taxAmount: string;
+  totalAmount: string;
+  paidAmount: string;
   changeAmount: string;
-  completedAt?: string;
-  branch: { name: string; phone?: string | null; address?: string | null };
+  currencyCode: CurrencyCode;
+  exchangeRate: string;
+  status: string;
+  notes?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+  branch: { id?: string; name: string; branchCode?: string; phone?: string | null; address?: string | null };
+  customer: { id?: string; name: string; customerCode?: string; phone?: string | null } | null;
+  cashierEmployee: { id?: string; name: string; employeeCode?: string };
+  shift?: { id: string; shiftNumber: string; status: string } | null;
+  _count?: { orderItems: number; payments: number; saleReturns?: number };
+}
+
+interface OrderDetail extends OrderSummary {
   orderItems: Array<{
     id: string;
     productId: string;
@@ -42,6 +76,8 @@ interface OrderDetail extends OrderSummary {
     skuSnapshot: string;
     quantity: string;
     unitPrice: string;
+    discountAmount: string;
+    taxAmount: string;
     lineTotal: string;
     product?: { id: string; trackInventory: boolean } | null;
   }>;
@@ -50,7 +86,10 @@ interface OrderDetail extends OrderSummary {
     paymentMethod: string;
     amount: string;
     currencyCode: CurrencyCode;
+    exchangeRate?: string;
+    amountInOrderCurrency?: string;
     referenceNumber?: string | null;
+    status: string;
     paidAt: string;
   }>;
   saleReturns?: Array<{
@@ -130,6 +169,8 @@ interface ReturnDetail {
   }>;
 }
 
+const EXCHANGE_RATE = 4100;
+
 export default function SalesPage() {
   const { activeTenant, activeBranch, hasPermission } = useAuth();
   const { t } = useI18n();
@@ -137,13 +178,25 @@ export default function SalesPage() {
 
   const [tab, setTab] = useState<'orders' | 'payments' | 'returns'>('orders');
   const [search, setSearch] = useState('');
+  const [branchFilter, setBranchFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [orderCurrencyFilter, setOrderCurrencyFilter] = useState('ALL');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState('ALL');
   const [paymentCurrencyFilter, setPaymentCurrencyFilter] = useState('ALL');
   const [refundMethodFilter, setRefundMethodFilter] = useState('ALL');
+
+  // Pagination states
+  const [orderPage, setOrderPage] = useState(1);
+  const [orderPageSize, setOrderPageSize] = useState(10);
+  const [paymentPage, setPaymentPage] = useState(1);
+  const [paymentPageSize, setPaymentPageSize] = useState(10);
+  const [returnPage, setReturnPage] = useState(1);
+  const [returnPageSize, setReturnPageSize] = useState(10);
+
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
   const [returnsList, setReturnsList] = useState<ReturnRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState<OrderDetail | null>(null);
   const [selectedReturn, setSelectedReturn] = useState<ReturnDetail | null>(null);
   const [salePickerOpen, setSalePickerOpen] = useState(false);
@@ -159,38 +212,55 @@ export default function SalesPage() {
   const [submittingReturn, setSubmittingReturn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     if (!activeTenant) return;
-    const orderQs = new URLSearchParams();
-    if (activeBranch) orderQs.set('branchId', activeBranch.id);
-    if (search) orderQs.set('search', search);
-    if (statusFilter !== 'ALL') orderQs.set('status', statusFilter);
+    setLoading(true);
+    try {
+      const orderQs = new URLSearchParams();
+      if (activeBranch) {
+        orderQs.set('branchId', activeBranch.id);
+      } else if (branchFilter !== 'ALL') {
+        orderQs.set('branchId', branchFilter);
+      }
+      if (search.trim()) orderQs.set('search', search.trim());
+      if (statusFilter !== 'ALL') orderQs.set('status', statusFilter);
+      if (orderCurrencyFilter !== 'ALL') orderQs.set('currencyCode', orderCurrencyFilter);
 
-    const paymentQs = new URLSearchParams();
-    if (activeBranch) paymentQs.set('branchId', activeBranch.id);
-    if (search) paymentQs.set('search', search);
-    if (paymentMethodFilter !== 'ALL') paymentQs.set('paymentMethod', paymentMethodFilter);
-    if (paymentCurrencyFilter !== 'ALL') paymentQs.set('currencyCode', paymentCurrencyFilter);
+      const paymentQs = new URLSearchParams();
+      if (activeBranch) paymentQs.set('branchId', activeBranch.id);
+      else if (branchFilter !== 'ALL') paymentQs.set('branchId', branchFilter);
+      if (search.trim()) paymentQs.set('search', search.trim());
+      if (paymentMethodFilter !== 'ALL') paymentQs.set('paymentMethod', paymentMethodFilter);
+      if (paymentCurrencyFilter !== 'ALL') paymentQs.set('currencyCode', paymentCurrencyFilter);
 
-    const returnQs = new URLSearchParams();
-    if (activeBranch) returnQs.set('branchId', activeBranch.id);
-    if (search) returnQs.set('search', search);
-    if (refundMethodFilter !== 'ALL') returnQs.set('refundMethod', refundMethodFilter);
+      const returnQs = new URLSearchParams();
+      if (activeBranch) returnQs.set('branchId', activeBranch.id);
+      else if (branchFilter !== 'ALL') returnQs.set('branchId', branchFilter);
+      if (search.trim()) returnQs.set('search', search.trim());
+      if (refundMethodFilter !== 'ALL') returnQs.set('refundMethod', refundMethodFilter);
 
-    const [ords, pays, rets] = await Promise.all([
-      apiRequest<OrderSummary[]>(`/orders?${orderQs.toString()}`),
-      apiRequest<PaymentRow[]>(`/payments?${paymentQs.toString()}`),
-      apiRequest<ReturnRow[]>(`/returns?${returnQs.toString()}`),
-    ]);
-    setOrders(ords);
-    setPayments(pays);
-    setReturnsList(rets);
+      const [ords, pays, rets] = await Promise.all([
+        apiRequest<OrderSummary[]>(`/orders?${orderQs.toString()}`),
+        apiRequest<PaymentRow[]>(`/payments?${paymentQs.toString()}`),
+        apiRequest<ReturnRow[]>(`/returns?${returnQs.toString()}`),
+      ]);
+      setOrders(ords);
+      setPayments(pays);
+      setReturnsList(rets);
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Unable to load sales data');
+    } finally {
+      setLoading(false);
+    }
   }, [
     activeTenant,
     activeBranch,
+    branchFilter,
     search,
     statusFilter,
+    orderCurrencyFilter,
     paymentMethodFilter,
     paymentCurrencyFilter,
     refundMethodFilter,
@@ -199,6 +269,19 @@ export default function SalesPage() {
   useEffect(() => {
     void loadData().catch(() => {});
   }, [loadData]);
+
+  // Reset pages when filters change
+  useEffect(() => {
+    setOrderPage(1);
+    setPaymentPage(1);
+    setReturnPage(1);
+  }, [search, branchFilter, statusFilter, orderCurrencyFilter, tab]);
+
+  const handleCopyId = (id: string) => {
+    void navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   const openOrderDetail = async (id: string) => {
     setError(null);
@@ -370,62 +453,335 @@ export default function SalesPage() {
     }
   };
 
+  // KPIs
+  const kpis = useMemo(() => {
+    let grossUsd = 0;
+    let completedCount = 0;
+    let refundedCount = 0;
+    let totalRefundedUsd = 0;
+
+    orders.forEach((o) => {
+      const amt = parseFloat(o.totalAmount || '0') || 0;
+      const inUsd = o.currencyCode === 'KHR' ? amt / EXCHANGE_RATE : amt;
+      grossUsd += inUsd;
+      if (o.status === 'COMPLETED') completedCount += 1;
+      if (o.status === 'RETURNED' || o.status === 'PARTIALLY_RETURNED') refundedCount += 1;
+    });
+
+    returnsList.forEach((r) => {
+      const refAmt = parseFloat(r.refundAmount || '0') || 0;
+      const inUsd = r.order.currencyCode === 'KHR' ? refAmt / EXCHANGE_RATE : refAmt;
+      totalRefundedUsd += inUsd;
+    });
+
+    const avgBasket = orders.length > 0 ? grossUsd / orders.length : 0;
+
+    return {
+      totalOrders: orders.length,
+      completedCount,
+      refundedCount,
+      grossUsd,
+      avgBasket,
+      totalRefundedUsd,
+      totalPayments: payments.length,
+    };
+  }, [orders, returnsList, payments]);
+
+  // Client-side filtering & search fallbacks
+  const filteredOrders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return orders.filter((o) => {
+      if (statusFilter !== 'ALL' && o.status !== statusFilter) return false;
+      if (orderCurrencyFilter !== 'ALL' && o.currencyCode !== orderCurrencyFilter) return false;
+      if (branchFilter !== 'ALL' && o.branchId && o.branchId !== branchFilter) return false;
+      if (!q) return true;
+      return (
+        o.orderNumber.toLowerCase().includes(q) ||
+        (o.customer?.name && o.customer.name.toLowerCase().includes(q)) ||
+        (o.customer?.customerCode && o.customer.customerCode.toLowerCase().includes(q)) ||
+        (o.customer?.phone && o.customer.phone.toLowerCase().includes(q)) ||
+        (o.cashierEmployee?.name && o.cashierEmployee.name.toLowerCase().includes(q)) ||
+        (o.shift?.shiftNumber && o.shift.shiftNumber.toLowerCase().includes(q)) ||
+        (o.notes && o.notes.toLowerCase().includes(q)) ||
+        o.id.toLowerCase().includes(q)
+      );
+    });
+  }, [orders, search, statusFilter, orderCurrencyFilter, branchFilter]);
+
+  const paginatedOrders = useMemo(() => {
+    const start = (orderPage - 1) * orderPageSize;
+    return filteredOrders.slice(start, start + orderPageSize);
+  }, [filteredOrders, orderPage, orderPageSize]);
+
+  const paginatedPayments = useMemo(() => {
+    const start = (paymentPage - 1) * paymentPageSize;
+    return payments.slice(start, start + paymentPageSize);
+  }, [payments, paymentPage, paymentPageSize]);
+
+  const paginatedReturns = useMemo(() => {
+    const start = (returnPage - 1) * returnPageSize;
+    return returnsList.slice(start, start + returnPageSize);
+  }, [returnsList, returnPage, returnPageSize]);
+
   return (
     <AppShell>
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
-          <h1 className="text-2xl font-bold text-slate-900">{t.nav.sales}</h1>
-          <div className="flex flex-wrap items-center gap-2">
-            {tab === 'orders' && (
-              <select
-                aria-label="Filter orders by status"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+      <div className="mx-auto max-w-7xl space-y-6">
+        {/* Header & Quick Actions */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <ShoppingBag className="h-6 w-6 text-emerald-600" />
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+                {t.nav.sales}
+              </h1>
+              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                {orders.length} orders
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-slate-600">
+              Manage transactions, customer checkouts, multi-currency split payments, and customer returns.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void loadData()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition"
+              title={t.common.refresh}
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">{t.common.refresh}</span>
+            </button>
+            {tab === 'returns' && canRefund && (
+              <button
+                type="button"
+                onClick={() => void openSalePicker()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-700 transition"
               >
-                <option value="ALL">All Status</option>
-                <option value="COMPLETED">COMPLETED</option>
-                <option value="PARTIALLY_RETURNED">PARTIALLY_RETURNED</option>
-                <option value="RETURNED">RETURNED</option>
-              </select>
+                <Plus className="h-4 w-4" />
+                <span>New Return</span>
+              </button>
             )}
-            {tab === 'payments' && (
-              <>
-                <select
-                  aria-label="Filter payments by method"
-                  value={paymentMethodFilter}
-                  onChange={(e) => setPaymentMethodFilter(e.target.value)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+          </div>
+        </div>
+
+        {/* Notifications */}
+        {feedback && (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0" />
+              <span>{feedback}</span>
+            </div>
+            <button type="button" onClick={() => setFeedback(null)} className="text-emerald-600 hover:text-emerald-800">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+        {error && (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-center justify-between shadow-sm">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
+            <button type="button" onClick={() => setError(null)} className="text-red-500 hover:text-red-800">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* KPI Cards Strip */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Total Orders
+              </span>
+              <div className="rounded-xl bg-slate-100 p-2.5 text-slate-600">
+                <ShoppingBag className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-3 flex items-baseline gap-2">
+              <span className="text-2xl font-bold text-slate-900">{kpis.totalOrders}</span>
+              <span className="text-xs font-medium text-emerald-600">
+                {kpis.completedCount} completed
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Total checkout orders</p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Gross Revenue
+              </span>
+              <div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600">
+                <DollarSign className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <div className="text-2xl font-bold text-emerald-600">
+                {formatCurrency(kpis.grossUsd, 'USD')}
+              </div>
+              <div className="text-xs text-slate-500">
+                &asymp; {formatCurrency(kpis.grossUsd * EXCHANGE_RATE, 'KHR')}
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Cumulative sales across branches</p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Avg. Basket Size
+              </span>
+              <div className="rounded-xl bg-purple-50 p-2.5 text-purple-600">
+                <TrendingUp className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <div className="text-2xl font-bold text-slate-900">
+                {formatCurrency(kpis.avgBasket, 'USD')}
+              </div>
+              <div className="text-xs text-slate-500">
+                &asymp; {formatCurrency(kpis.avgBasket * EXCHANGE_RATE, 'KHR')}
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Per sales transaction</p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Returns / Refunds
+              </span>
+              <div className="rounded-xl bg-rose-50 p-2.5 text-rose-600">
+                <RotateCcw className="h-5 w-5" />
+              </div>
+            </div>
+            <div className="mt-3">
+              <div className="text-2xl font-bold text-rose-700">
+                {formatCurrency(kpis.totalRefundedUsd, 'USD')}
+              </div>
+              <div className="text-xs text-slate-500">
+                {returnsList.length} transaction(s) returned
+              </div>
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Reversed customer refunds</p>
+          </div>
+        </div>
+
+        {/* Tab Controls & Filters Strip */}
+        <div className="space-y-3 print:hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+            <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1">
+              {(['orders', 'payments', 'returns'] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setTab(k)}
+                  className={`rounded-lg px-4 py-1.5 text-xs font-semibold transition ${
+                    tab === k
+                      ? 'bg-white text-slate-900 shadow-sm font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
                 >
-                  <option value="ALL">All Methods</option>
-                  {PAYMENT_METHODS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
+                  {k === 'orders'
+                    ? `Orders (${filteredOrders.length})`
+                    : k === 'payments'
+                      ? `Payments (${payments.length})`
+                      : `Returns (${returnsList.length})`}
+                </button>
+              ))}
+            </div>
+
+            {/* Filter Controls per Tab */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Branch Filter (if not branch-locked) */}
+              {!activeBranch && activeTenant?.branches && activeTenant.branches.length > 1 && (
+                <select
+                  aria-label="Filter by branch"
+                  value={branchFilter}
+                  onChange={(e) => setBranchFilter(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="ALL">All Branches</option>
+                  {activeTenant.branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
                     </option>
                   ))}
                 </select>
-                <select
-                  aria-label="Filter payments by currency"
-                  value={paymentCurrencyFilter}
-                  onChange={(e) => setPaymentCurrencyFilter(e.target.value)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
-                >
-                  <option value="ALL">All Currencies</option>
-                  {SUPPORTED_CURRENCIES.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-            {tab === 'returns' && (
-              <>
+              )}
+
+              {tab === 'orders' && (
+                <>
+                  <select
+                    aria-label="Filter orders by status"
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="ALL">All Status</option>
+                    <option value="COMPLETED">Completed</option>
+                    <option value="PARTIALLY_RETURNED">Partially Returned</option>
+                    <option value="RETURNED">Returned</option>
+                    <option value="VOIDED">Voided</option>
+                  </select>
+
+                  <select
+                    aria-label="Filter orders by currency"
+                    value={orderCurrencyFilter}
+                    onChange={(e) => setOrderCurrencyFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="ALL">All Currencies</option>
+                    {SUPPORTED_CURRENCIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              {tab === 'payments' && (
+                <>
+                  <select
+                    aria-label="Filter payments by method"
+                    value={paymentMethodFilter}
+                    onChange={(e) => setPaymentMethodFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="ALL">All Methods</option>
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Filter payments by currency"
+                    value={paymentCurrencyFilter}
+                    onChange={(e) => setPaymentCurrencyFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                  >
+                    <option value="ALL">All Currencies</option>
+                    {SUPPORTED_CURRENCIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
+
+              {tab === 'returns' && (
                 <select
                   aria-label="Filter refunds by method"
                   value={refundMethodFilter}
                   onChange={(e) => setRefundMethodFilter(e.target.value)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
                 >
                   <option value="ALL">All Refund Methods</option>
                   {PAYMENT_METHODS.map((m) => (
@@ -434,176 +790,302 @@ export default function SalesPage() {
                     </option>
                   ))}
                 </select>
-                {canRefund && (
+              )}
+
+              {/* Search Bar */}
+              <div className="relative min-w-[200px] max-w-xs">
+                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={
+                    tab === 'orders'
+                      ? 'Order #, customer, shift, cashier...'
+                      : tab === 'payments'
+                        ? 'Order # or reference #...'
+                        : 'Return # or order #...'
+                  }
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-7 text-xs focus:border-emerald-500 focus:bg-white focus:outline-none transition"
+                />
+                {search && (
                   <button
                     type="button"
-                    onClick={() => void openSalePicker()}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+                    onClick={() => setSearch('')}
+                    className="absolute right-2 top-2 text-slate-400 hover:text-slate-600"
                   >
-                    <Plus className="h-4 w-4" /> New Return
+                    <X className="h-4 w-4" />
                   </button>
                 )}
-              </>
-            )}
-            <div className="relative w-64">
-              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={
-                  tab === 'orders'
-                    ? 'Order # or customer...'
-                    : tab === 'payments'
-                      ? 'Order # or Ref #...'
-                      : 'Return # or Order #...'
-                }
-                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm"
-              />
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="flex gap-2 border-b border-slate-200 pb-3 print:hidden">
-          {(['orders', 'payments', 'returns'] as const).map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setTab(k)}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold capitalize ${
-                tab === k ? 'bg-emerald-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'
-              }`}
-            >
-              {k === 'orders'
-                ? `Orders (${orders.length})`
-                : k === 'payments'
-                  ? `Payments (${payments.length})`
-                  : `Returns (${returnsList.length})`}
-            </button>
-          ))}
-        </div>
-
-        {feedback && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            {feedback}
-          </div>
-        )}
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
+        {/* Data Table */}
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm print:hidden">
           <div className="overflow-x-auto">
             {tab === 'orders' ? (
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
+                <thead className="bg-slate-50/75 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
-                    <th className="px-4 py-3">Order #</th>
-                    <th className="px-4 py-3">{t.common.date}</th>
-                    <th className="px-4 py-3">Branch</th>
-                    <th className="px-4 py-3">Customer</th>
-                    <th className="px-4 py-3">Total</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3 text-right">Actions</th>
+                    <th className="px-5 py-3.5">Order & ID</th>
+                    <th className="px-5 py-3.5">Date & Shift</th>
+                    <th className="px-5 py-3.5">Branch & Cashier</th>
+                    <th className="px-5 py-3.5">Customer</th>
+                    <th className="px-5 py-3.5">Financials</th>
+                    <th className="px-5 py-3.5">Paid & Change</th>
+                    <th className="px-5 py-3.5">Status</th>
+                    <th className="px-5 py-3.5 text-right">{t.common.actions}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {orders.map((o) => (
-                    <tr key={o.id}>
-                      <td className="px-4 py-3 font-mono text-xs font-semibold">{o.orderNumber}</td>
-                      <td className="px-4 py-3 text-xs text-slate-500">
-                        {new Date(o.createdAt).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{o.branch.name}</td>
-                      <td className="px-4 py-3 text-slate-600">{o.customer?.name ?? 'Walk-in'}</td>
-                      <td className="px-4 py-3 font-semibold text-emerald-700">
-                        {formatCurrency(o.totalAmount, o.currencyCode)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                          {o.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="inline-flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => void openOrderDetail(o.id)}
-                            className="inline-flex items-center gap-1 rounded border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                          >
-                            <Eye className="h-3.5 w-3.5" /> Details
-                          </button>
-                          {o.status !== 'RETURNED' && o.status !== 'VOIDED' && canRefund && (
-                            <button
-                              type="button"
-                              onClick={() => void openReturnForOrderId(o.id)}
-                              className="inline-flex items-center gap-1 rounded border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-                            >
-                              <RotateCcw className="h-3.5 w-3.5" /> Return
-                            </button>
-                          )}
+                  {loading ? (
+                    <tr>
+                      <td colSpan={8} className="px-5 py-12 text-center text-slate-500">
+                        <div className="flex flex-col items-center gap-2">
+                          <RefreshCw className="h-6 w-6 animate-spin text-emerald-600" />
+                          <span className="text-sm">{t.common.loading}</span>
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  ) : filteredOrders.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-5 py-12 text-center text-slate-500">
+                        <ShoppingBag className="mx-auto h-8 w-8 text-slate-300" />
+                        <p className="mt-2 text-sm font-medium text-slate-900">{t.common.noData}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {search
+                            ? 'No orders matched your search criteria.'
+                            : 'No completed sales orders recorded yet.'}
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedOrders.map((o) => {
+                      const isUsd = o.currencyCode === 'USD';
+                      const num = parseFloat(o.totalAmount || '0') || 0;
+                      const counterpart = isUsd ? num * EXCHANGE_RATE : num / EXCHANGE_RATE;
+                      const counterpartCur: CurrencyCode = isUsd ? 'KHR' : 'USD';
+
+                      return (
+                        <tr key={o.id} className="hover:bg-slate-50/50 transition">
+                          {/* Order Number & UUID */}
+                          <td className="px-5 py-4">
+                            <div className="space-y-0.5">
+                              <button
+                                type="button"
+                                onClick={() => void openOrderDetail(o.id)}
+                                className="font-mono text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline block text-left"
+                              >
+                                {o.orderNumber}
+                              </button>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyId(o.id)}
+                                  title={`UUID: ${o.id}`}
+                                  className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded px-1 transition"
+                                >
+                                  <span>{o.id.slice(0, 8)}...</span>
+                                  <Copy className="h-2.5 w-2.5" />
+                                  {copiedId === o.id && (
+                                    <span className="text-[10px] text-emerald-600 font-semibold">
+                                      Copied
+                                    </span>
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Date & Shift */}
+                          <td className="px-5 py-4">
+                            <div className="text-xs space-y-0.5">
+                              <div className="text-slate-700 font-medium">
+                                {new Date(o.createdAt).toLocaleDateString()}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                {new Date(o.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                              {o.shift && (
+                                <span className="inline-block mt-0.5 rounded bg-blue-50 border border-blue-200 px-1.5 py-0.2 font-mono text-[10px] font-semibold text-blue-700">
+                                  {o.shift.shiftNumber}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Branch & Cashier */}
+                          <td className="px-5 py-4">
+                            <div className="text-xs space-y-0.5">
+                              <div className="font-medium text-slate-900 flex items-center gap-1">
+                                <Building2 className="h-3 w-3 text-slate-400" />
+                                <span>{o.branch.name}</span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 flex items-center gap-1">
+                                <User className="h-3 w-3 text-slate-400" />
+                                <span>{o.cashierEmployee.name}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Customer */}
+                          <td className="px-5 py-4">
+                            {o.customer ? (
+                              <div className="text-xs space-y-0.5">
+                                <div className="font-semibold text-slate-900">{o.customer.name}</div>
+                                {o.customer.customerCode && (
+                                  <span className="inline-block font-mono text-[10px] text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
+                                    {o.customer.customerCode}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">Walk-in Guest</span>
+                            )}
+                          </td>
+
+                          {/* Financials (Total, Subtotal, Discount) */}
+                          <td className="px-5 py-4">
+                            <div className="space-y-0.5">
+                              <div className="text-sm font-bold text-slate-900">
+                                {formatCurrency(o.totalAmount, o.currencyCode)}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                &asymp; {formatCurrency(counterpart, counterpartCur)}
+                              </div>
+                              {(parseFloat(o.discountAmount) > 0 || parseFloat(o.taxAmount) > 0) && (
+                                <div className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
+                                  {parseFloat(o.discountAmount) > 0 && (
+                                    <span className="text-rose-600 font-medium">
+                                      Disc: -{formatCurrency(o.discountAmount, o.currencyCode)}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Paid & Change */}
+                          <td className="px-5 py-4">
+                            <div className="text-xs space-y-0.5">
+                              <div className="text-slate-700">
+                                Paid: <span className="font-semibold">{formatCurrency(o.paidAmount, o.currencyCode)}</span>
+                              </div>
+                              {parseFloat(o.changeAmount) > 0 && (
+                                <div className="text-[11px] text-emerald-600">
+                                  Change: {formatCurrency(o.changeAmount, o.currencyCode)}
+                                </div>
+                              )}
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                Rate: {o.exchangeRate}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Status */}
+                          <td className="px-5 py-4">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                o.status === 'COMPLETED'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : o.status === 'RETURNED'
+                                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                    : o.status === 'PARTIALLY_RETURNED'
+                                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                      : 'bg-slate-100 text-slate-700 border border-slate-200'
+                              }`}
+                            >
+                              {o.status}
+                            </span>
+                          </td>
+
+                          {/* Actions */}
+                          <td className="px-5 py-4 text-right">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => void openOrderDetail(o.id)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition"
+                                title="View order receipt & details"
+                              >
+                                <Eye className="h-3.5 w-3.5 text-slate-500" />
+                                <span>Details</span>
+                              </button>
+                              {o.status !== 'RETURNED' && o.status !== 'VOIDED' && canRefund && (
+                                <button
+                                  type="button"
+                                  onClick={() => void openReturnForOrderId(o.id)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs font-semibold text-rose-700 shadow-sm hover:bg-rose-100 transition"
+                                  title="Return items from this order"
+                                >
+                                  <RotateCcw className="h-3.5 w-3.5" />
+                                  <span className="hidden md:inline">Return</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             ) : tab === 'payments' ? (
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
+                <thead className="bg-slate-50/75 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
-                    <th className="px-4 py-3">Order #</th>
-                    <th className="px-4 py-3">Branch</th>
-                    <th className="px-4 py-3">Method</th>
-                    <th className="px-4 py-3">Amount</th>
-                    <th className="px-4 py-3">Reference #</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Paid At</th>
+                    <th className="px-5 py-3.5">Order #</th>
+                    <th className="px-5 py-3.5">Branch</th>
+                    <th className="px-5 py-3.5">Tender Method</th>
+                    <th className="px-5 py-3.5">Amount Tendered</th>
+                    <th className="px-5 py-3.5">Reference #</th>
+                    <th className="px-5 py-3.5">Status</th>
+                    <th className="px-5 py-3.5">Paid At</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {payments.map((p) => (
-                    <tr key={p.id}>
-                      <td className="px-4 py-3 font-mono text-xs">
+                  {paginatedPayments.map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-50/50 transition">
+                      <td className="px-5 py-4 font-mono text-xs">
                         <button
                           type="button"
                           onClick={() => void openOrderDetail(p.order.id)}
-                          className="font-semibold text-emerald-700 hover:underline"
+                          className="font-bold text-emerald-700 hover:underline"
                         >
                           {p.order.orderNumber}
                         </button>
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{p.order.branch.name}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                      <td className="px-5 py-4 text-xs text-slate-600">{p.order.branch.name}</td>
+                      <td className="px-5 py-4">
+                        <span className="rounded-lg bg-slate-100 border border-slate-200 px-2.5 py-0.5 text-xs font-semibold text-slate-800">
                           {p.paymentMethod}
                         </span>
                       </td>
-                      <td className="px-4 py-3 font-semibold text-emerald-700">
+                      <td className="px-5 py-4 font-semibold text-slate-900 text-xs">
                         <div>{formatCurrency(p.amount, p.currencyCode)}</div>
                         {p.currencyCode !== p.order.currencyCode && (
                           <div className="text-[11px] font-normal text-slate-500">
-                            ≈ {formatCurrency(p.amountInOrderCurrency, p.order.currencyCode)}
+                            &asymp; {formatCurrency(p.amountInOrderCurrency, p.order.currencyCode)}
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                      <td className="px-5 py-4 font-mono text-xs text-slate-600">
                         {p.referenceNumber || '—'}
                       </td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                      <td className="px-5 py-4">
+                        <span className="rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
                           {p.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-500">
+                      <td className="px-5 py-4 text-xs text-slate-500">
                         {new Date(p.paidAt).toLocaleString()}
                       </td>
                     </tr>
                   ))}
                   {payments.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-4 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={7} className="px-5 py-12 text-center text-sm text-slate-500">
                         No payment records found.
                       </td>
                     </tr>
@@ -612,24 +1094,24 @@ export default function SalesPage() {
               </table>
             ) : (
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
+                <thead className="bg-slate-50/75 text-xs font-semibold uppercase tracking-wider text-slate-500">
                   <tr>
-                    <th className="px-4 py-3">Return #</th>
-                    <th className="px-4 py-3">Order #</th>
-                    <th className="px-4 py-3">Branch</th>
-                    <th className="px-4 py-3">Reason</th>
-                    <th className="px-4 py-3">Refund</th>
-                    <th className="px-4 py-3">Restock</th>
-                    <th className="px-4 py-3">Processed By</th>
-                    <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Returned At</th>
-                    <th className="px-4 py-3 text-right">Action</th>
+                    <th className="px-5 py-3.5">Return #</th>
+                    <th className="px-5 py-3.5">Order #</th>
+                    <th className="px-5 py-3.5">Branch</th>
+                    <th className="px-5 py-3.5">Reason</th>
+                    <th className="px-5 py-3.5">Refund Paid</th>
+                    <th className="px-5 py-3.5">Restock</th>
+                    <th className="px-5 py-3.5">Processed By</th>
+                    <th className="px-5 py-3.5">Status</th>
+                    <th className="px-5 py-3.5">Returned At</th>
+                    <th className="px-5 py-3.5 text-right">{t.common.actions}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {returnsList.map((r) => (
+                  {paginatedReturns.map((r) => (
                     <tr key={r.id} className="hover:bg-slate-50/70 transition">
-                      <td className="px-4 py-3 font-mono text-xs font-semibold">
+                      <td className="px-5 py-4 font-mono text-xs font-semibold">
                         <button
                           type="button"
                           onClick={() => void openReturnDetail(r.id)}
@@ -639,7 +1121,7 @@ export default function SalesPage() {
                           {r.returnNumber}
                         </button>
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs">
+                      <td className="px-5 py-4 font-mono text-xs">
                         <button
                           type="button"
                           onClick={() => void openOrderDetail(r.order.id)}
@@ -648,12 +1130,12 @@ export default function SalesPage() {
                           {r.order.orderNumber}
                         </button>
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{r.branch.name}</td>
-                      <td className="px-4 py-3 text-slate-600">{r.returnReason}</td>
-                      <td className="px-4 py-3 font-semibold text-rose-700">
+                      <td className="px-5 py-4 text-xs text-slate-600">{r.branch.name}</td>
+                      <td className="px-5 py-4 text-xs text-slate-600">{r.returnReason}</td>
+                      <td className="px-5 py-4 font-semibold text-rose-700 text-xs">
                         {formatCurrency(r.refundAmount, r.order.currencyCode)} ({r.refundMethod})
                       </td>
-                      <td className="px-4 py-3 text-xs font-semibold">
+                      <td className="px-5 py-4 text-xs font-semibold">
                         <span
                           className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                             r.restockStatus === 'RESTOCKED'
@@ -664,20 +1146,20 @@ export default function SalesPage() {
                           {r.restockStatus}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-600">{r.employee.name}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700">
+                      <td className="px-5 py-4 text-xs text-slate-600">{r.employee.name}</td>
+                      <td className="px-5 py-4">
+                        <span className="rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 text-xs font-semibold text-rose-700">
                           {r.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-500">
+                      <td className="px-5 py-4 text-xs text-slate-500">
                         {new Date(r.returnedAt).toLocaleString()}
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-5 py-4 text-right">
                         <button
                           type="button"
                           onClick={() => void openReturnDetail(r.id)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
                         >
                           <Eye className="h-3 w-3" /> View
                         </button>
@@ -686,7 +1168,7 @@ export default function SalesPage() {
                   ))}
                   {returnsList.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="px-4 py-6 text-center text-sm text-slate-500">
+                      <td colSpan={10} className="px-5 py-12 text-center text-sm text-slate-500">
                         No refund or return records found.
                       </td>
                     </tr>
@@ -695,143 +1177,291 @@ export default function SalesPage() {
               </table>
             )}
           </div>
+
+          {/* Tab Pagination */}
+          {tab === 'orders' && (
+            <DataTablePagination
+              currentPage={orderPage}
+              pageSize={orderPageSize}
+              totalItems={filteredOrders.length}
+              onPageChange={setOrderPage}
+              onPageSizeChange={setOrderPageSize}
+              itemName="orders"
+            />
+          )}
+          {tab === 'payments' && (
+            <DataTablePagination
+              currentPage={paymentPage}
+              pageSize={paymentPageSize}
+              totalItems={payments.length}
+              onPageChange={setPaymentPage}
+              onPageSizeChange={setPaymentPageSize}
+              itemName="payments"
+            />
+          )}
+          {tab === 'returns' && (
+            <DataTablePagination
+              currentPage={returnPage}
+              pageSize={returnPageSize}
+              totalItems={returnsList.length}
+              onPageChange={setReturnPage}
+              onPageSizeChange={setReturnPageSize}
+              itemName="returns"
+            />
+          )}
         </div>
 
-        {/* Order Detail & Receipt Modal */}
+        {/* Enhanced Order Detail & Printable Receipt Modal */}
         {selectedOrder && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 print:static print:bg-white print:p-0">
-            <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl print:shadow-none">
-              <div className="flex items-start justify-between">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm print:static print:bg-white print:p-0">
+            <div className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl max-h-[92vh] overflow-y-auto print:max-h-none print:shadow-none print:p-6">
+              {/* Header */}
+              <div className="flex items-start justify-between border-b border-slate-100 pb-4">
                 <div>
-                  <h2 className="font-mono text-lg font-bold text-slate-900">
-                    {selectedOrder.orderNumber}
-                  </h2>
-                  <p className="text-xs text-slate-500">
-                    {selectedOrder.branch.name} · Cashier: {selectedOrder.cashierEmployee.name} ·{' '}
-                    {selectedOrder.customer?.name ?? 'Walk-in'}
-                  </p>
-                  <p className="text-[11px] text-slate-400">
-                    {new Date(selectedOrder.completedAt || selectedOrder.createdAt).toLocaleString()}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-mono text-xl font-bold text-slate-900">
+                      {selectedOrder.orderNumber}
+                    </h2>
+                    <span
+                      className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        selectedOrder.status === 'COMPLETED'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : selectedOrder.status === 'RETURNED'
+                            ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                      }`}
+                    >
+                      {selectedOrder.status}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 font-mono text-[11px] text-slate-400 mt-1">
+                    <span>UUID: {selectedOrder.id}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyId(selectedOrder.id)}
+                      className="hover:text-slate-600"
+                      title="Copy full UUID"
+                    >
+                      <Copy className="h-3 w-3" />
+                    </button>
+                    {copiedId === selectedOrder.id && (
+                      <span className="text-emerald-600 font-sans font-bold">Copied!</span>
+                    )}
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => setSelectedOrder(null)}
-                  className="text-sm text-slate-500 print:hidden"
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 print:hidden"
                 >
-                  {t.common.close}
+                  <X className="h-5 w-5" />
                 </button>
               </div>
-              <div className="mt-4 divide-y divide-slate-100 border-y border-dashed border-slate-200 py-2 text-sm">
-                {selectedOrder.orderItems.map((oi) => (
-                  <div key={oi.id} className="flex justify-between py-2">
-                    <div>
-                      <p className="font-medium text-slate-900">{oi.productNameSnapshot}</p>
-                      <p className="text-xs text-slate-500">
-                        {oi.skuSnapshot} · {oi.quantity} ×{' '}
-                        {formatCurrency(oi.unitPrice, selectedOrder.currencyCode)}
-                      </p>
-                    </div>
-                    <span className="font-semibold">
-                      {formatCurrency(oi.lineTotal, selectedOrder.currencyCode)}
-                    </span>
-                  </div>
-                ))}
-              </div>
 
-              <div className="mt-3 space-y-1 text-xs">
-                <div className="flex justify-between text-slate-600">
-                  <span>{t.common.subtotal}</span>
-                  <span>{formatCurrency(selectedOrder.subtotal, selectedOrder.currencyCode)}</span>
+              {/* Order Meta Attributes */}
+              <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-2xl bg-slate-50 p-3.5 text-xs border border-slate-100">
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-semibold">Branch</span>
+                  <span className="font-semibold text-slate-900 mt-0.5 block truncate">
+                    {selectedOrder.branch.name}
+                  </span>
                 </div>
-                {Number(selectedOrder.discountAmount) > 0 && (
-                  <div className="flex justify-between text-slate-600">
-                    <span>{t.common.discount}</span>
-                    <span>
-                      -{formatCurrency(selectedOrder.discountAmount, selectedOrder.currencyCode)}
-                    </span>
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-semibold">Cashier</span>
+                  <span className="font-semibold text-slate-900 mt-0.5 block truncate">
+                    {selectedOrder.cashierEmployee.name}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-semibold">Customer</span>
+                  <span className="font-semibold text-slate-900 mt-0.5 block truncate">
+                    {selectedOrder.customer?.name ?? 'Walk-in Guest'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-semibold">Shift</span>
+                  <span className="font-mono font-semibold text-blue-700 mt-0.5 block truncate">
+                    {selectedOrder.shift?.shiftNumber ?? '—'}
+                  </span>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-slate-400 block text-[10px] uppercase font-semibold">Created Date</span>
+                  <span className="text-slate-700 mt-0.5 block">
+                    {new Date(selectedOrder.createdAt).toLocaleString()}
+                  </span>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-slate-400 block text-[10px] uppercase font-semibold">Completed Date</span>
+                  <span className="text-slate-700 mt-0.5 block">
+                    {selectedOrder.completedAt ? new Date(selectedOrder.completedAt).toLocaleString() : '—'}
+                  </span>
+                </div>
+                {selectedOrder.notes && (
+                  <div className="col-span-2 sm:col-span-4 border-t border-slate-200/60 pt-2">
+                    <span className="text-slate-400 block text-[10px] uppercase font-semibold">Notes</span>
+                    <p className="text-slate-700 mt-0.5 italic">{selectedOrder.notes}</p>
                   </div>
                 )}
-                {Number(selectedOrder.taxAmount) > 0 && (
+              </div>
+
+              {/* Order Items Table */}
+              <div className="mt-4">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                  Purchased Items ({selectedOrder.orderItems.length})
+                </h3>
+                <div className="divide-y divide-slate-100 rounded-xl border border-slate-200 overflow-hidden text-xs">
+                  {selectedOrder.orderItems.map((oi) => (
+                    <div key={oi.id} className="flex items-center justify-between p-3 bg-white hover:bg-slate-50/50">
+                      <div>
+                        <p className="font-semibold text-slate-900">{oi.productNameSnapshot}</p>
+                        <p className="text-[11px] text-slate-500 font-mono">
+                          SKU: {oi.skuSnapshot} · {oi.quantity} × {formatCurrency(oi.unitPrice, selectedOrder.currencyCode)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold text-slate-900 text-sm">
+                          {formatCurrency(oi.lineTotal, selectedOrder.currencyCode)}
+                        </span>
+                        {parseFloat(oi.discountAmount || '0') > 0 && (
+                          <div className="text-[10px] text-rose-600">
+                            Disc: -{formatCurrency(oi.discountAmount, selectedOrder.currencyCode)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Financial Calculation Breakdown */}
+              <div className="mt-4 space-y-1.5 rounded-2xl bg-slate-50 p-4 text-xs border border-slate-200">
+                <div className="flex justify-between text-slate-600">
+                  <span>Subtotal</span>
+                  <span>{formatCurrency(selectedOrder.subtotal, selectedOrder.currencyCode)}</span>
+                </div>
+                {parseFloat(selectedOrder.discountAmount) > 0 && (
+                  <div className="flex justify-between text-rose-600 font-medium">
+                    <span>Order Discount</span>
+                    <span>-{formatCurrency(selectedOrder.discountAmount, selectedOrder.currencyCode)}</span>
+                  </div>
+                )}
+                {parseFloat(selectedOrder.taxAmount) > 0 && (
                   <div className="flex justify-between text-slate-600">
-                    <span>{t.common.tax}</span>
+                    <span>Tax</span>
                     <span>{formatCurrency(selectedOrder.taxAmount, selectedOrder.currencyCode)}</span>
                   </div>
                 )}
-                <div className="flex justify-between border-t border-slate-100 pt-1.5 text-sm font-bold text-slate-900">
-                  <span>{t.common.total}</span>
-                  <span>{formatCurrency(selectedOrder.totalAmount, selectedOrder.currencyCode)}</span>
+                <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold text-slate-900">
+                  <span>Total Amount</span>
+                  <span className="text-emerald-700">
+                    {formatCurrency(selectedOrder.totalAmount, selectedOrder.currencyCode)}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-600 pt-1">
+                  <span>Paid Amount</span>
+                  <span className="font-semibold text-slate-900">
+                    {formatCurrency(selectedOrder.paidAmount, selectedOrder.currencyCode)}
+                  </span>
                 </div>
                 <div className="flex justify-between text-slate-600">
-                  <span>{t.pos.paidAmount}</span>
-                  <span>{formatCurrency(selectedOrder.paidAmount, selectedOrder.currencyCode)}</span>
+                  <span>Change Amount</span>
+                  <span className="font-semibold text-emerald-600">
+                    {formatCurrency(selectedOrder.changeAmount, selectedOrder.currencyCode)}
+                  </span>
                 </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>{t.pos.changeAmount}</span>
-                  <span>{formatCurrency(selectedOrder.changeAmount, selectedOrder.currencyCode)}</span>
+                <div className="flex justify-between text-[11px] text-slate-400 font-mono border-t border-slate-200/60 pt-1.5">
+                  <span>Exchange Rate</span>
+                  <span>1 USD = {selectedOrder.exchangeRate} KHR</span>
                 </div>
-                <div className="pt-1 text-[11px] text-slate-500">
-                  Payments:{' '}
-                  {selectedOrder.payments
-                    .map(
-                      (p) =>
-                        `${p.paymentMethod} ${formatCurrency(p.amount, p.currencyCode)}${
-                          p.referenceNumber ? ` (${p.referenceNumber})` : ''
-                        }`,
-                    )
-                    .join(', ')}
-                </div>
-                {selectedOrder.saleReturns && selectedOrder.saleReturns.length > 0 && (
-                  <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50/70 p-2.5 text-[11px] text-rose-900">
-                    <p className="font-semibold">Refunds Issued</p>
-                    <div className="mt-1 space-y-1">
-                      {selectedOrder.saleReturns.map((sr) => (
-                        <div key={sr.id} className="flex items-center justify-between gap-2">
-                          <span>
-                            {sr.returnNumber} · {sr.returnReason} ({sr.restockStatus})
-                          </span>
-                          <span className="font-semibold">
-                            -{formatCurrency(sr.refundAmount, selectedOrder.currencyCode)} via{' '}
-                            {sr.refundMethod}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
 
-              <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-3 print:hidden">
+              {/* Payment Tenders List */}
+              <div className="mt-4">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                  Payment Tenders
+                </h3>
+                <div className="space-y-1.5">
+                  {selectedOrder.payments.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-between rounded-xl bg-slate-50 p-2.5 text-xs border border-slate-200"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="rounded bg-white border border-slate-200 px-2 py-0.5 font-bold text-slate-800">
+                          {p.paymentMethod}
+                        </span>
+                        {p.referenceNumber && (
+                          <span className="font-mono text-slate-500">Ref: {p.referenceNumber}</span>
+                        )}
+                      </div>
+                      <span className="font-bold text-slate-900">
+                        {formatCurrency(p.amount, p.currencyCode)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Refunds Issued Section */}
+              {selectedOrder.saleReturns && selectedOrder.saleReturns.length > 0 && (
+                <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50/70 p-3 text-xs">
+                  <h4 className="font-bold text-rose-900 uppercase tracking-wider text-[11px]">
+                    Refunds Issued Against This Order
+                  </h4>
+                  <div className="mt-2 space-y-1.5">
+                    {selectedOrder.saleReturns.map((sr) => (
+                      <div key={sr.id} className="flex items-center justify-between bg-white rounded-xl p-2.5 border border-rose-100">
+                        <div>
+                          <span className="font-mono font-bold text-rose-700">{sr.returnNumber}</span>
+                          <span className="text-slate-500 ml-2">· {sr.returnReason}</span>
+                        </div>
+                        <span className="font-bold text-rose-800">
+                          -{formatCurrency(sr.refundAmount, selectedOrder.currencyCode)} via {sr.refundMethod}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Modal Action Buttons */}
+              <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-4 print:hidden">
                 <button
                   type="button"
                   onClick={() =>
-                    downloadOrderReceiptHtml(selectedOrder, {
-                      businessName: activeTenant?.name ?? 'Receipt',
-                      logoUrl: activeTenant?.logoUrl,
-                    })
+                    downloadOrderReceiptHtml(
+                      {
+                        ...selectedOrder,
+                        completedAt: selectedOrder.completedAt ?? undefined,
+                      },
+                      {
+                        businessName: activeTenant?.name ?? 'Receipt',
+                        logoUrl: activeTenant?.logoUrl,
+                      },
+                    )
                   }
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition"
                 >
                   <Download className="h-3.5 w-3.5" /> Download Receipt
                 </button>
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm transition"
                 >
                   <Printer className="h-3.5 w-3.5" /> {t.common.print}
                 </button>
                 {selectedOrder.status !== 'RETURNED' &&
                   selectedOrder.status !== 'VOIDED' &&
                   canRefund && (
-                  <button
-                    type="button"
-                    onClick={() => openReturnModal(selectedOrder)}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-rose-700"
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" /> Return / Refund
-                  </button>
-                )}
+                    <button
+                      type="button"
+                      onClick={() => openReturnModal(selectedOrder)}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-rose-700 transition"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" /> Return / Refund
+                    </button>
+                  )}
               </div>
             </div>
           </div>
@@ -839,12 +1469,20 @@ export default function SalesPage() {
 
         {/* Original Sale Picker Modal (from Returns tab) */}
         {salePickerOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-            <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-slate-900">Select Original Sale to Return</h2>
-                <button type="button" onClick={() => setSalePickerOpen(false)}>
-                  <X className="h-5 w-5 text-slate-400" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="rounded-xl bg-rose-50 p-2 text-rose-600">
+                    <RotateCcw className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900">Select Sale Order to Return</h2>
+                    <p className="text-xs text-slate-500">Pick an active sales order to issue partial or full refund.</p>
+                  </div>
+                </div>
+                <button type="button" onClick={() => setSalePickerOpen(false)} className="text-slate-400 hover:text-slate-600">
+                  <X className="h-5 w-5" />
                 </button>
               </div>
               <div className="relative mt-3">
@@ -853,7 +1491,7 @@ export default function SalesPage() {
                   value={salePickerSearch}
                   onChange={(e) => setSalePickerSearch(e.target.value)}
                   placeholder="Search by Order # or customer name..."
-                  className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-sm"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-xs focus:border-emerald-500 focus:bg-white focus:outline-none"
                 />
               </div>
               <div className="mt-3 max-h-80 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200">
@@ -869,7 +1507,7 @@ export default function SalesPage() {
                   .map((o) => (
                     <div
                       key={o.id}
-                      className="flex items-center justify-between gap-3 px-4 py-3 text-sm hover:bg-slate-50"
+                      className="flex items-center justify-between gap-3 px-4 py-3 text-xs hover:bg-slate-50 transition"
                     >
                       <div>
                         <p className="font-mono text-xs font-bold text-slate-900">
@@ -878,19 +1516,19 @@ export default function SalesPage() {
                             {o.status}
                           </span>
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-slate-500 mt-0.5">
                           {o.branch.name} · {o.customer?.name ?? 'Walk-in'} ·{' '}
                           {new Date(o.createdAt).toLocaleString()}
                         </p>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="font-semibold text-emerald-700">
+                        <span className="font-bold text-slate-900">
                           {formatCurrency(o.totalAmount, o.currencyCode)}
                         </span>
                         <button
                           type="button"
                           onClick={() => void openReturnForOrderId(o.id)}
-                          className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700"
+                          className="rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rose-700 shadow-sm transition"
                         >
                           Select
                         </button>
@@ -898,8 +1536,8 @@ export default function SalesPage() {
                     </div>
                   ))}
                 {eligibleOrders.length === 0 && (
-                  <p className="p-6 text-center text-sm text-slate-500">
-                    No returnable sales available in this branch.
+                  <p className="p-6 text-center text-xs text-slate-500">
+                    No returnable sales orders available in this branch.
                   </p>
                 )}
               </div>
@@ -909,12 +1547,14 @@ export default function SalesPage() {
 
         {/* Sale Return Modal */}
         {returnModalOrder && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4">
-            <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
-              <div className="flex items-start justify-between">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+            <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-3">
                 <div>
-                  <h2 className="text-lg font-bold">Return Items — {returnModalOrder.orderNumber}</h2>
-                  <p className="text-xs text-slate-500">
+                  <h2 className="text-lg font-bold text-slate-900">
+                    Return Items — {returnModalOrder.orderNumber}
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
                     Original Total: {formatCurrency(returnModalOrder.totalAmount, returnModalOrder.currencyCode)}
                     {returnEstimate.previouslyRefunded > 0 &&
                       ` · Previously Refunded: ${formatCurrency(
@@ -923,14 +1563,15 @@ export default function SalesPage() {
                       )}`}
                   </p>
                 </div>
-                <button type="button" onClick={() => setReturnModalOrder(null)}>
-                  <X className="h-5 w-5 text-slate-400" />
+                <button type="button" onClick={() => setReturnModalOrder(null)} className="text-slate-400 hover:text-slate-600">
+                  <X className="h-5 w-5" />
                 </button>
               </div>
 
               {returnModalError && (
-                <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                  {returnModalError}
+                <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-red-600 flex-shrink-0" />
+                  <span>{returnModalError}</span>
                 </div>
               )}
 
@@ -1000,7 +1641,7 @@ export default function SalesPage() {
                                   };
                                 });
                               }}
-                              className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 disabled:bg-slate-100"
+                              className="mt-0.5 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs disabled:bg-slate-100"
                             />
                           </div>
                           <div className="col-span-3">
@@ -1027,7 +1668,7 @@ export default function SalesPage() {
                                   },
                                 }))
                               }
-                              className="mt-0.5 w-full rounded border border-slate-300 bg-white px-2 py-1 disabled:bg-slate-100"
+                              className="mt-0.5 w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs disabled:bg-slate-100"
                             />
                           </div>
                         </div>
@@ -1076,9 +1717,9 @@ export default function SalesPage() {
                   })}
                 </div>
 
-                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm">
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs">
                   <div className="flex items-center justify-between">
-                    <span className="font-medium text-rose-900">Estimated Refundable Amount</span>
+                    <span className="font-semibold text-rose-900">Estimated Refundable Amount</span>
                     <span className="text-base font-bold text-rose-700">
                       {formatCurrency(
                         returnModalOrder.currencyCode === 'KHR'
@@ -1090,13 +1731,13 @@ export default function SalesPage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700">Refund Method</label>
+                    <label className="block text-xs font-semibold text-slate-700">Refund Tender Method</label>
                     <select
                       value={refundMethod}
                       onChange={(e) => setRefundMethod(e.target.value as PaymentMethod)}
-                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs focus:border-emerald-500 focus:outline-none"
                     >
                       {PAYMENT_METHODS.map((m) => (
                         <option key={m} value={m}>
@@ -1113,22 +1754,22 @@ export default function SalesPage() {
                       value={returnReason}
                       onChange={(e) => setReturnReason(e.target.value)}
                       placeholder="Defective, wrong item, damaged..."
-                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-xs focus:border-emerald-500 focus:outline-none"
                     />
                   </div>
                 </div>
-                <div className="flex justify-end gap-2">
+                <div className="flex justify-end gap-2 border-t border-slate-100 pt-3">
                   <button
                     type="button"
                     onClick={() => setReturnModalOrder(null)}
-                    className="rounded-lg border border-slate-200 px-4 py-2 text-sm"
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
                   >
                     {t.common.cancel}
                   </button>
                   <button
                     type="submit"
                     disabled={submittingReturn}
-                    className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-60"
+                    className="rounded-xl bg-rose-600 px-5 py-2 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-60 shadow-sm"
                   >
                     {submittingReturn ? t.common.saving : 'Confirm Refund'}
                   </button>
@@ -1138,7 +1779,7 @@ export default function SalesPage() {
           </div>
         )}
 
-        {/* 5. Return Details Modal */}
+        {/* Return Details Modal */}
         {selectedReturn && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm print:static print:bg-white print:p-0">
             <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl print:shadow-none">
@@ -1248,14 +1889,14 @@ export default function SalesPage() {
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 shadow-sm"
                 >
                   <Printer className="h-3.5 w-3.5" /> Print Note
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedReturn(null)}
-                  className="rounded-xl bg-slate-800 px-5 py-2 text-xs font-bold text-white hover:bg-slate-900"
+                  className="rounded-xl bg-slate-800 px-5 py-2 text-xs font-bold text-white hover:bg-slate-900 shadow-sm"
                 >
                   Close
                 </button>

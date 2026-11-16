@@ -9,12 +9,17 @@ const actor = (req: Request) => ({
 });
 
 export const getOrders = asyncHandler(async (req: Request, res: Response) => {
-  const data = await salesService.listOrders(req.tenant!.tenantId, {
-    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
-    status: typeof req.query.status === 'string' ? req.query.status : undefined,
-    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+  const result = await salesService.listOrders(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data: result.items ?? result,
+    pagination: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+    },
   });
-  res.json({ success: true, data });
 });
 
 export const getOrder = asyncHandler(async (req: Request, res: Response) => {
