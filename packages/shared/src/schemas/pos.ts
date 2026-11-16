@@ -52,6 +52,14 @@ export const updateEmployeeSchema = z.object({
   roleIds: z.array(z.string().uuid()).optional(),
 });
 
+export const listEmployeesQuerySchema = z.object({
+  search: z.string().trim().optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  branchId: z.string().uuid().optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+});
+
 export const inviteEmployeeSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   roleId: z.string().uuid(),
@@ -405,6 +413,7 @@ export type CreateRoleInput = z.infer<typeof createRoleSchema>;
 export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
 export type CreateEmployeeInput = z.infer<typeof createEmployeeSchema>;
 export type UpdateEmployeeInput = z.infer<typeof updateEmployeeSchema>;
+export type ListEmployeesQueryInput = z.infer<typeof listEmployeesQuerySchema>;
 export type InviteEmployeeInput = z.infer<typeof inviteEmployeeSchema>;
 export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
 

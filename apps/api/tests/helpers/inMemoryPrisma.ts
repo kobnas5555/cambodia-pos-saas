@@ -139,6 +139,14 @@ export function createInMemoryPrisma() {
         if (!order || !matchesWhere(order, val)) return false;
         continue;
       }
+      if (key === 'branchAccess' && val && typeof val === 'object' && (val as any).some) {
+        const targetBranchId = (val as any).some.branchId;
+        const hasAccess = store.employeeBranchAccess.some(
+          (ba) => ba.employeeId === row.id && (targetBranchId ? ba.branchId === targetBranchId : true),
+        );
+        if (!hasAccess) return false;
+        continue;
+      }
       if (key === 'supplier' && val && typeof val === 'object') {
         const supplier = store.suppliers.find((s) => s.id === row.supplierId);
         if (!supplier || !matchesWhere(supplier, val)) return false;
@@ -667,11 +675,26 @@ export function createInMemoryPrisma() {
       },
       findFirst: async ({ where }: { where: Row }) =>
         store.employees.find((e) => matchesWhere(e, where)) ?? null,
-      findMany: async ({ where, include, orderBy }: { where?: Row; include?: Row; orderBy?: any } = {}) =>
-        applyOrderBy(
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: {
+        where?: Row;
+        include?: Row;
+        orderBy?: any;
+        skip?: number;
+        take?: number;
+      } = {}) => {
+        let list = applyOrderBy(
           store.employees.filter((e) => matchesWhere(e, where)),
           orderBy,
-        ).map((e) => {
+        );
+        if (typeof skip === 'number') list = list.slice(skip);
+        if (typeof take === 'number') list = list.slice(0, take);
+        return list.map((e) => {
           const out: Row = { ...e };
           if (include?.branchAccess) {
             out.branchAccess = store.employeeBranchAccess
@@ -688,7 +711,8 @@ export function createInMemoryPrisma() {
             out.tenantUser = tu ? enrichTenantUser(tu, include.tenantUser.include) : null;
           }
           return out;
-        }),
+        });
+      },
       create: async ({ data }: { data: Row }) => {
         const now = new Date();
         const row = { id: uuid(), status: 'ACTIVE', createdAt: now, updatedAt: now, ...data };

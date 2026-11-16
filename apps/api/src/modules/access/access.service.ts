@@ -211,22 +211,48 @@ export async function deleteRole(tenantId: string, roleId: string, actor: ActorI
   });
 }
 
-export async function listEmployees(tenantId: string, search?: string) {
+export async function listEmployees(
+  tenantId: string,
+  options?: {
+    search?: string;
+    status?: string;
+    branchId?: string;
+    page?: number;
+    limit?: number;
+  } | string,
+) {
+  const opts = typeof options === 'string' ? { search: options } : (options ?? {});
+  const { search, status, branchId } = opts;
+  const page = Number(opts.page) > 0 ? Number(opts.page) : 1;
+  const limit = opts.limit !== undefined ? Number(opts.limit) : undefined;
+
+  const where: any = {
+    tenantId,
+    ...(status && status !== 'ALL' ? { status } : {}),
+    ...(branchId && branchId !== 'ALL'
+      ? {
+          branchAccess: {
+            some: { branchId },
+          },
+        }
+      : {}),
+    ...(search
+      ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { employeeCode: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search, mode: 'insensitive' } },
+            { position: { contains: search, mode: 'insensitive' } },
+          ],
+        }
+      : {}),
+  };
+
+  const total = await prisma.employee.count({ where });
+
   const employees = await prisma.employee.findMany({
-    where: {
-      tenantId,
-      ...(search
-        ? {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { employeeCode: { contains: search, mode: 'insensitive' } },
-              { email: { contains: search, mode: 'insensitive' } },
-              { phone: { contains: search, mode: 'insensitive' } },
-              { position: { contains: search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    },
+    where,
     include: {
       branchAccess: {
         include: { branch: { select: { id: true, name: true, branchCode: true } } },
@@ -240,10 +266,13 @@ export async function listEmployees(tenantId: string, search?: string) {
       },
     },
     orderBy: { createdAt: 'asc' },
+    ...(limit ? { skip: (page - 1) * limit, take: limit } : {}),
   });
 
-  return employees.map((e) => ({
+  const items = employees.map((e) => ({
     id: e.id,
+    tenantId: e.tenantId,
+    tenantUserId: e.tenantUserId,
     employeeCode: e.employeeCode,
     name: e.name,
     phone: e.phone,
@@ -252,10 +281,22 @@ export async function listEmployees(tenantId: string, search?: string) {
     hireDate: e.hireDate,
     status: e.status,
     createdAt: e.createdAt,
+    updatedAt: e.updatedAt,
     branches: e.branchAccess.map((ba) => ba.branch),
     roles: e.tenantUser?.userRoles.map((ur) => ur.role) ?? [],
     hasLoginAccount: Boolean(e.tenantUserId),
   }));
+
+  const effectiveLimit = limit ?? (total > 0 ? total : 20);
+  const totalPages = Math.max(1, Math.ceil(total / effectiveLimit));
+
+  return {
+    items,
+    total,
+    page,
+    limit: effectiveLimit,
+    totalPages,
+  };
 }
 
 export async function createEmployee(

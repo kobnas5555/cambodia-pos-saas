@@ -41,9 +41,17 @@ export const removeRole = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const getEmployees = asyncHandler(async (req: Request, res: Response) => {
-  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
-  const data = await accessService.listEmployees(req.tenant!.tenantId, search);
-  res.json({ success: true, data });
+  const result = await accessService.listEmployees(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data: result.items,
+    pagination: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+    },
+  });
 });
 
 export const postEmployee = asyncHandler(async (req: Request, res: Response) => {
