@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Logs & OS
+logs/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Coverage & Test artifacts
+coverage/
+.vitest/
+
+# Backups
+backups/
+*.dump
+
+# Prisma generated client (if custom output)
+apps/api/prisma/migrations/*.sql.bak
+

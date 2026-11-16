@@ -1,0 +1,29 @@
+{
+  "name": "cambodia-pos-saas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cambodia POS SaaS — Multi-tenant Point of Sale & Business Management System",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm --workspace=@cambodia-pos/api run dev",
+    "dev:web": "npm --workspace=@cambodia-pos/web run dev",
+    "build": "npm run build:shared && npm run build:api && npm run build:web",
+    "build:shared": "npm --workspace=@cambodia-pos/shared run build",
+    "build:api": "npm --workspace=@cambodia-pos/api run build",
+    "build:web": "npm --workspace=@cambodia-pos/web run build",
+    "typecheck": "npm --workspace=@cambodia-pos/shared run typecheck && npm --workspace=@cambodia-pos/api run typecheck && npm --workspace=@cambodia-pos/web run typecheck",
+    "test": "npm --workspace=@cambodia-pos/shared run test && npm --workspace=@cambodia-pos/api run test && npm --workspace=@cambodia-pos/web run test",
+    "prisma:generate": "npm --workspace=@cambodia-pos/api run prisma:generate",
+    "prisma:migrate": "npm --workspace=@cambodia-pos/api run prisma:migrate",
+    "prisma:seed": "npm --workspace=@cambodia-pos/api run prisma:seed",
+    "db:backup": "npm --workspace=@cambodia-pos/api run db:backup",
+    "db:backup:list": "npm --workspace=@cambodia-pos/api run db:backup:list"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
+

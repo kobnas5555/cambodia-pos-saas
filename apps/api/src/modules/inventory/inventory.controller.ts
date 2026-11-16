@@ -1,0 +1,48 @@
+import type { Request, Response } from 'express';
+import { asyncHandler } from '../../common/utils/asyncHandler';
+import * as inventoryService from './inventory.service';
+
+export const getBalances = asyncHandler(async (req: Request, res: Response) => {
+  const data = await inventoryService.listStockBalances(req.tenant!.tenantId, {
+    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
+    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+    lowStockOnly: req.query.lowStockOnly === 'true',
+  });
+  res.json({ success: true, data });
+});
+
+export const getMovements = asyncHandler(async (req: Request, res: Response) => {
+  const data = await inventoryService.listStockMovements(req.tenant!.tenantId, {
+    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
+    productId: typeof req.query.productId === 'string' ? req.query.productId : undefined,
+    movementType: typeof req.query.movementType === 'string' ? req.query.movementType : undefined,
+    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+  });
+  res.json({ success: true, data });
+});
+
+export const getAdjustments = asyncHandler(async (req: Request, res: Response) => {
+  const data = await inventoryService.listStockAdjustments(req.tenant!.tenantId, {
+    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
+    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+  });
+  res.json({ success: true, data });
+});
+
+export const getAdjustmentDetail = asyncHandler(async (req: Request, res: Response) => {
+  const data = await inventoryService.getAdjustmentById(
+    req.tenant!.tenantId,
+    req.params.adjustmentId,
+  );
+  res.json({ success: true, data });
+});
+
+export const postAdjustment = asyncHandler(async (req: Request, res: Response) => {
+  const data = await inventoryService.createStockAdjustment(
+    req.tenant!.tenantId,
+    { userId: req.auth!.userId, employeeId: req.tenant!.employeeId, ipAddress: req.ip || null },
+    req.body,
+  );
+  res.status(201).json({ success: true, data });
+});
+

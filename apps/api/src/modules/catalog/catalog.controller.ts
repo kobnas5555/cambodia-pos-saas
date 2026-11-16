@@ -1,0 +1,106 @@
+import type { Request, Response } from 'express';
+import { asyncHandler } from '../../common/utils/asyncHandler';
+import * as catalogService from './catalog.service';
+
+const actor = (req: Request) => ({
+  userId: req.auth!.userId,
+  employeeId: req.tenant!.employeeId,
+  ipAddress: req.ip || null,
+});
+
+// Categories
+export const getCategories = asyncHandler(async (req: Request, res: Response) => {
+  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+  const data = await catalogService.listCategories(req.tenant!.tenantId, search);
+  res.json({ success: true, data });
+});
+
+export const postCategory = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.createCategory(req.tenant!.tenantId, actor(req), req.body);
+  res.status(201).json({ success: true, data });
+});
+
+export const patchCategory = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.updateCategory(
+    req.tenant!.tenantId,
+    req.params.categoryId,
+    actor(req),
+    req.body,
+  );
+  res.json({ success: true, data });
+});
+
+// Units
+export const getUnits = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.listUnits(req.tenant!.tenantId);
+  res.json({ success: true, data });
+});
+
+export const postUnit = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.createUnit(req.tenant!.tenantId, actor(req), req.body);
+  res.status(201).json({ success: true, data });
+});
+
+export const patchUnit = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.updateUnit(
+    req.tenant!.tenantId,
+    req.params.unitId,
+    actor(req),
+    req.body,
+  );
+  res.json({ success: true, data });
+});
+
+// Suppliers
+export const getSuppliers = asyncHandler(async (req: Request, res: Response) => {
+  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+  const data = await catalogService.listSuppliers(req.tenant!.tenantId, search);
+  res.json({ success: true, data });
+});
+
+export const postSupplier = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.createSupplier(req.tenant!.tenantId, actor(req), req.body);
+  res.status(201).json({ success: true, data });
+});
+
+export const patchSupplier = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.updateSupplier(
+    req.tenant!.tenantId,
+    req.params.supplierId,
+    actor(req),
+    req.body,
+  );
+  res.json({ success: true, data });
+});
+
+// Products
+export const getProducts = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.listProducts(req.tenant!.tenantId, {
+    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+    categoryId: typeof req.query.categoryId === 'string' ? req.query.categoryId : undefined,
+    status: typeof req.query.status === 'string' ? req.query.status : undefined,
+    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
+  });
+  res.json({ success: true, data });
+});
+
+export const postProduct = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.createProduct(req.tenant!.tenantId, actor(req), req.body);
+  res.status(201).json({ success: true, data });
+});
+
+export const patchProduct = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.updateProduct(
+    req.tenant!.tenantId,
+    req.params.productId,
+    actor(req),
+    req.body,
+  );
+  res.json({ success: true, data });
+});
+
+export const deleteProduct = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.archiveProduct(req.tenant!.tenantId, req.params.productId, actor(req));
+  res.json({ success: true, data });
+});
+
