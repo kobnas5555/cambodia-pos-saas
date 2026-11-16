@@ -109,13 +109,21 @@ export const createSupplierSchema = z.object({
   name: z.string().trim().min(2).max(160),
   contactPerson: z.string().trim().max(140).optional().nullable(),
   phone: z.string().trim().max(40).optional().nullable(),
-  email: z.string().trim().toLowerCase().email().optional().nullable(),
+  email: z.string().trim().toLowerCase().email().optional().nullable().or(z.literal('')),
   address: z.string().trim().max(500).optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional().default('ACTIVE'),
 });
 
 export const updateSupplierSchema = createSupplierSchema.partial().extend({
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+});
+
+export const listSuppliersQuerySchema = z.object({
+  search: z.string().optional(),
+  status: z.enum(['ALL', 'ACTIVE', 'INACTIVE']).optional().default('ALL'),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
 export const createProductSchema = z.object({
@@ -432,6 +440,7 @@ export type CreateUnitInput = z.infer<typeof createUnitSchema>;
 export type UpdateUnitInput = z.infer<typeof updateUnitSchema>;
 export type CreateSupplierInput = z.infer<typeof createSupplierSchema>;
 export type UpdateSupplierInput = z.infer<typeof updateSupplierSchema>;
+export type ListSuppliersQuery = z.infer<typeof listSuppliersQuerySchema>;
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 

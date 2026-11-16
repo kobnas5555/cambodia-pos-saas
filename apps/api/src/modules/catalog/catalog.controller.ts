@@ -70,9 +70,17 @@ export const patchUnit = asyncHandler(async (req: Request, res: Response) => {
 
 // Suppliers
 export const getSuppliers = asyncHandler(async (req: Request, res: Response) => {
-  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
-  const data = await catalogService.listSuppliers(req.tenant!.tenantId, search);
-  res.json({ success: true, data });
+  const result = await catalogService.listSuppliers(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data: result.items,
+    pagination: {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+      totalPages: result.totalPages,
+    },
+  });
 });
 
 export const postSupplier = asyncHandler(async (req: Request, res: Response) => {
@@ -86,6 +94,15 @@ export const patchSupplier = asyncHandler(async (req: Request, res: Response) =>
     req.params.supplierId,
     actor(req),
     req.body,
+  );
+  res.json({ success: true, data });
+});
+
+export const deleteSupplier = asyncHandler(async (req: Request, res: Response) => {
+  const data = await catalogService.deleteSupplier(
+    req.tenant!.tenantId,
+    req.params.supplierId,
+    actor(req),
   );
   res.json({ success: true, data });
 });

@@ -293,23 +293,56 @@ export async function updateUnit(
 // Suppliers
 // ============================================================================
 
-export async function listSuppliers(tenantId: string, search?: string) {
-  return prisma.supplier.findMany({
-    where: {
-      tenantId,
-      ...(search
-        ? {
-            OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { contactPerson: { contains: search, mode: 'insensitive' } },
-              { phone: { contains: search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    },
-    include: { _count: { select: { purchases: true } } },
-    orderBy: { name: 'asc' },
-  });
+export async function listSuppliers(
+  tenantId: string,
+  options?:
+    | string
+    | {
+        search?: string;
+        status?: string;
+        page?: number;
+        limit?: number;
+      },
+) {
+  const search = typeof options === 'string' ? options : options?.search;
+  const status = typeof options === 'object' ? options?.status : undefined;
+  const page = typeof options === 'object' && options?.page ? Math.max(1, Number(options.page)) : 1;
+  const limit = typeof options === 'object' && options?.limit ? Math.max(1, Number(options.limit)) : 100;
+  const skip = (page - 1) * limit;
+
+  const where = {
+    tenantId,
+    ...(search
+      ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' as const } },
+            { contactPerson: { contains: search, mode: 'insensitive' as const } },
+            { phone: { contains: search, mode: 'insensitive' as const } },
+            { email: { contains: search, mode: 'insensitive' as const } },
+          ],
+        }
+      : {}),
+    ...(status && status !== 'ALL' ? { status } : {}),
+  };
+
+  const [total, items] = await Promise.all([
+    prisma.supplier.count({ where }),
+    prisma.supplier.findMany({
+      where,
+      include: { _count: { select: { purchases: true } } },
+      orderBy: { name: 'asc' },
+      skip,
+      take: limit,
+    }),
+  ]);
+
+  return {
+    items,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit) || 1,
+  };
 }
 
 export async function createSupplier(
@@ -384,6 +417,56 @@ export async function updateSupplier(
   });
 
   return updated;
+}
+
+export async function deleteSupplier(
+  tenantId: string,
+  supplierId: string,
+  actor: ActorInfo,
+) {
+  const existing = await prisma.supplier.findFirst({
+    where: { id: supplierId, tenantId },
+    include: { _count: { select: { purchases: true } } },
+  });
+  if (!existing) throw AppError.notFound('Supplier not found', 'SUPPLIER_NOT_FOUND');
+
+  if (((existing as any)._count?.purchases ?? 0) > 0) {
+    const archived = await prisma.supplier.update({
+      where: { id: supplierId },
+      data: { status: 'INACTIVE' },
+    });
+    await recordActivity({
+      tenantId,
+      userId: actor.userId,
+      employeeId: actor.employeeId,
+      action: 'supplier.archived',
+      module: 'suppliers',
+      recordType: 'Supplier',
+      recordId: supplierId,
+      oldValues: { status: existing.status },
+      newValues: { status: 'INACTIVE' },
+      ipAddress: actor.ipAddress,
+    });
+    return archived;
+  }
+
+  const deleted = await prisma.supplier.delete({
+    where: { id: supplierId },
+  });
+
+  await recordActivity({
+    tenantId,
+    userId: actor.userId,
+    employeeId: actor.employeeId,
+    action: 'supplier.deleted',
+    module: 'suppliers',
+    recordType: 'Supplier',
+    recordId: supplierId,
+    oldValues: { name: existing.name },
+    ipAddress: actor.ipAddress,
+  });
+
+  return deleted;
 }
 
 // ============================================================================

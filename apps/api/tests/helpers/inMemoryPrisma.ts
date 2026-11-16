@@ -960,16 +960,28 @@ export function createInMemoryPrisma() {
     supplier: {
       findFirst: async ({ where }: { where: Row }) =>
         store.suppliers.find((s) => matchesWhere(s, where)) ?? null,
-      findMany: async ({ where, include, orderBy }: { where?: Row; include?: Row; orderBy?: any } = {}) =>
-        applyOrderBy(
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: { where?: Row; include?: Row; orderBy?: any; skip?: number; take?: number } = {}) => {
+        let rows = applyOrderBy(
           store.suppliers.filter((s) => matchesWhere(s, where)),
           orderBy,
-        ).map((s) => ({
+        );
+        if (skip !== undefined) rows = rows.slice(skip);
+        if (take !== undefined) rows = rows.slice(0, take);
+        return rows.map((s) => ({
           ...s,
           ...(include?._count
             ? { _count: { purchases: store.purchases.filter((pu) => pu.supplierId === s.id).length } }
             : {}),
-        })),
+        }));
+      },
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.suppliers.filter((s) => matchesWhere(s, where)).length,
       create: async ({ data }: { data: Row }) => {
         const now = new Date();
         const row = { id: uuid(), status: 'ACTIVE', createdAt: now, updatedAt: now, ...data };
@@ -981,6 +993,12 @@ export function createInMemoryPrisma() {
         if (idx === -1) throw new Error('Supplier not found');
         store.suppliers[idx] = { ...store.suppliers[idx], ...data, updatedAt: new Date() };
         return { ...store.suppliers[idx] };
+      },
+      delete: async ({ where }: { where: Row }) => {
+        const idx = store.suppliers.findIndex((s) => matchesWhere(s, where));
+        if (idx === -1) throw new Error('Supplier not found');
+        const [removed] = store.suppliers.splice(idx, 1);
+        return { ...removed };
       },
     },
 

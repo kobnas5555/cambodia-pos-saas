@@ -56,6 +56,12 @@ suppliersRouter.patch(
   validate({ params: idParam('supplierId'), body: updateSupplierSchema }),
   controller.patchSupplier,
 );
+suppliersRouter.delete(
+  '/:supplierId',
+  requirePermission('products.archive'),
+  validate({ params: idParam('supplierId') }),
+  controller.deleteSupplier,
+);
 
 export const productsRouter = Router();
 productsRouter.use(authenticate, requireTenantContext);

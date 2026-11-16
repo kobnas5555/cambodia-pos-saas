@@ -179,6 +179,12 @@ export default function ProductsCatalogPage() {
   const [supNotes, setSupNotes] = useState('');
   const [supStatus, setSupStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
 
+  // Supplier table filters & pagination
+  const [supSearch, setSupSearch] = useState('');
+  const [supStatusFilter, setSupStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
+  const [supPage, setSupPage] = useState<number>(1);
+  const [supPageSize, setSupPageSize] = useState<number>(10);
+
   const loadAll = useCallback(async () => {
     if (!activeTenant) return;
     setLoading(true);
@@ -461,6 +467,43 @@ export default function ProductsCatalogPage() {
     }
   };
 
+  const handleToggleSupplierStatus = async (sup: SupplierRow) => {
+    setError(null);
+    try {
+      const nextStatus = sup.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+      await apiRequest(`/suppliers/${sup.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      setFeedback(`Supplier "${sup.name}" status updated to ${nextStatus}.`);
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Unable to update supplier status');
+    }
+  };
+
+  const handleDeleteSupplier = async (sup: SupplierRow) => {
+    if (sup._count && sup._count.purchases > 0) {
+      if (
+        !confirm(
+          `Notice: Supplier "${sup.name}" has ${sup._count.purchases} linked purchase order(s). Deactivating it is recommended to keep accounting and purchasing history intact. Deactivate now?`,
+        )
+      ) {
+        return;
+      }
+      return handleToggleSupplierStatus(sup);
+    }
+    if (!confirm(`Are you sure you want to delete supplier "${sup.name}"?`)) return;
+    setError(null);
+    try {
+      await apiRequest(`/suppliers/${sup.id}`, { method: 'DELETE' });
+      setFeedback(`Supplier "${sup.name}" deleted.`);
+      await loadAll();
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : 'Unable to delete supplier');
+    }
+  };
+
   // KPI Calculations
   const totalProdsCount = products.length;
   const activeProdsCount = products.filter((p) => p.status === 'ACTIVE').length;
@@ -529,14 +572,40 @@ export default function ProductsCatalogPage() {
     return filteredCategories.slice(start, start + catPageSize);
   }, [filteredCategories, catPage, catPageSize]);
 
-  const filteredSuppliers = suppliers.filter(
-    (s) =>
-      !q ||
-      s.name.toLowerCase().includes(q) ||
-      (s.contactPerson ?? '').toLowerCase().includes(q) ||
-      (s.phone ?? '').toLowerCase().includes(q) ||
-      (s.email ?? '').toLowerCase().includes(q),
-  );
+  const filteredSuppliers = useMemo(() => {
+    return suppliers.filter((s) => {
+      if (supStatusFilter !== 'ALL' && s.status !== supStatusFilter) return false;
+      if (supSearch.trim()) {
+        const query = supSearch.trim().toLowerCase();
+        const matchesName = s.name.toLowerCase().includes(query);
+        const matchesContact = (s.contactPerson ?? '').toLowerCase().includes(query);
+        const matchesPhone = (s.phone ?? '').toLowerCase().includes(query);
+        const matchesEmail = (s.email ?? '').toLowerCase().includes(query);
+        const matchesAddress = (s.address ?? '').toLowerCase().includes(query);
+        const matchesNotes = (s.notes ?? '').toLowerCase().includes(query);
+        if (
+          !matchesName &&
+          !matchesContact &&
+          !matchesPhone &&
+          !matchesEmail &&
+          !matchesAddress &&
+          !matchesNotes
+        ) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [suppliers, supStatusFilter, supSearch]);
+
+  useEffect(() => {
+    setSupPage(1);
+  }, [supSearch, supStatusFilter]);
+
+  const paginatedSuppliers = useMemo(() => {
+    const start = (supPage - 1) * supPageSize;
+    return filteredSuppliers.slice(start, start + supPageSize);
+  }, [filteredSuppliers, supPage, supPageSize]);
 
   // Live calculations for Product Modal
   const costNum = Number(pCost) || 0;
@@ -829,7 +898,46 @@ export default function ProductsCatalogPage() {
               </>
             )}
 
-            {tab !== 'units' && tab !== 'categories' && (
+            {tab === 'suppliers' && (
+              <>
+                <select
+                  aria-label="Filter suppliers by status"
+                  value={supStatusFilter}
+                  onChange={(e) => setSupStatusFilter(e.target.value as any)}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
+                >
+                  <option value="ALL">All Status</option>
+                  <option value="ACTIVE">{t.common.active}</option>
+                  <option value="INACTIVE">{t.common.inactive}</option>
+                </select>
+
+                <div className="relative w-full sm:w-64">
+                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={supSearch}
+                    onChange={(e) => setSupSearch(e.target.value)}
+                    placeholder="Search name, phone, email, contact..."
+                    className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm shadow-sm focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                {(supSearch || supStatusFilter !== 'ALL') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSupSearch('');
+                      setSupStatusFilter('ALL');
+                    }}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Reset
+                  </button>
+                )}
+              </>
+            )}
+
+            {tab !== 'units' && tab !== 'categories' && tab !== 'suppliers' && (
               <div className="relative w-full sm:w-60">
                 <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                 <input
@@ -1193,27 +1301,41 @@ export default function ProductsCatalogPage() {
                     <th className="px-4 py-3">{t.catalog.contactPerson}</th>
                     <th className="px-4 py-3">{t.branches.phone}</th>
                     <th className="px-4 py-3">Email</th>
-                    <th className="px-4 py-3">Address</th>
+                    <th className="px-4 py-3">Address & Notes</th>
                     <th className="px-4 py-3">Purchases</th>
                     <th className="px-4 py-3">{t.common.status}</th>
                     <th className="px-4 py-3 text-right">{t.common.actions}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredSuppliers.length === 0 ? (
+                  {paginatedSuppliers.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                         {t.common.noData}
                       </td>
                     </tr>
                   ) : (
-                    filteredSuppliers.map((s) => (
+                    paginatedSuppliers.map((s) => (
                       <tr key={s.id} className="hover:bg-slate-50/50">
-                        <td className="px-4 py-3 font-semibold text-slate-900">{s.name}</td>
-                        <td className="px-4 py-3 text-slate-600">{s.contactPerson || '—'}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-slate-600">{s.phone || '—'}</td>
-                        <td className="px-4 py-3 text-slate-600">{s.email || '—'}</td>
-                        <td className="px-4 py-3 text-xs text-slate-500">{s.address || '—'}</td>
+                        <td className="px-4 py-3 font-semibold text-slate-900">
+                          <div>
+                            <span className="font-semibold text-slate-900">{s.name}</span>
+                            <span className="block text-[10px] font-mono text-slate-400">ID: {s.id.slice(0, 8)}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-slate-700">{s.contactPerson || '—'}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-slate-700">{s.phone || '—'}</td>
+                        <td className="px-4 py-3 text-xs text-slate-600">{s.email || '—'}</td>
+                        <td className="px-4 py-3 text-xs text-slate-600 max-w-xs">
+                          <div>
+                            <span className="truncate block">{s.address || '—'}</span>
+                            {s.notes && (
+                              <span className="block text-[11px] text-slate-400 truncate italic mt-0.5">
+                                {s.notes}
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-4 py-3 text-slate-600">
                           <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold">
                             {s._count?.purchases ?? 0}
@@ -1231,27 +1353,49 @@ export default function ProductsCatalogPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {canUpdate ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingSup(s);
-                                setSupName(s.name);
-                                setSupContact(s.contactPerson ?? '');
-                                setSupPhone(s.phone ?? '');
-                                setSupEmail(s.email ?? '');
-                                setSupAddress(s.address ?? '');
-                                setSupNotes(s.notes ?? '');
-                                setSupStatus(s.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE');
-                                setSupModal(true);
-                              }}
-                              className="rounded border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                            >
-                              {t.common.edit}
-                            </button>
-                          ) : (
-                            <span className="text-xs text-slate-400">Read-only</span>
-                          )}
+                          <div className="flex items-center justify-end gap-1.5">
+                            {canUpdate ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingSup(s);
+                                    setSupName(s.name);
+                                    setSupContact(s.contactPerson ?? '');
+                                    setSupPhone(s.phone ?? '');
+                                    setSupEmail(s.email ?? '');
+                                    setSupAddress(s.address ?? '');
+                                    setSupNotes(s.notes ?? '');
+                                    setSupStatus(s.status === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE');
+                                    setSupModal(true);
+                                  }}
+                                  className="rounded border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                >
+                                  {t.common.edit}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSupplierStatus(s)}
+                                  className={`rounded border px-2.5 py-1 text-xs font-medium ${
+                                    s.status === 'ACTIVE'
+                                      ? 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                      : 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                                  }`}
+                                >
+                                  {s.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteSupplier(s)}
+                                  className="rounded border border-rose-200 px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                                >
+                                  Delete
+                                </button>
+                              </>
+                            ) : (
+                              <span className="text-xs text-slate-400">Read-only</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -1280,6 +1424,17 @@ export default function ProductsCatalogPage() {
               onPageChange={setCatPage}
               onPageSizeChange={setCatPageSize}
               itemName="categories"
+            />
+          )}
+
+          {tab === 'suppliers' && (
+            <DataTablePagination
+              currentPage={supPage}
+              pageSize={supPageSize}
+              totalItems={filteredSuppliers.length}
+              onPageChange={setSupPage}
+              onPageSizeChange={setSupPageSize}
+              itemName="suppliers"
             />
           )}
         </div>
