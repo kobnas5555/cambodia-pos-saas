@@ -220,8 +220,8 @@ export default function SystemSettingsPage() {
     if (!activeTenant) return;
     setDbRecordsLoading(true);
     try {
-      const res = await apiRequest<{ success: boolean; data: SettingDbRecord[] }>('/settings/records');
-      setDbRecords(res.data || []);
+      const res = await apiRequest<SettingDbRecord[] | { success: boolean; data: SettingDbRecord[] }>('/settings/records');
+      setDbRecords(Array.isArray(res) ? res : (res as { data: SettingDbRecord[] }).data || []);
     } catch {
       // ignore
     } finally {
