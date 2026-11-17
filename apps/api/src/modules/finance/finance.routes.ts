@@ -1,91 +1,20 @@
-import {
-  createExpenseSchema,
-  createExpenseTypeSchema,
-  createIncomeSchema,
-  listExpenseTypesQuerySchema,
-  listExpensesQuerySchema,
-  listIncomesQuerySchema,
-  updateExpenseTypeSchema,
-} from '@cambodia-pos/shared';
 import { Router } from 'express';
-import { z } from 'zod';
 import { authenticate } from '../../common/middleware/authenticate';
 import { requirePermission } from '../../common/middleware/requirePermission';
 import { requireTenantContext } from '../../common/middleware/tenantContext';
-import { validate } from '../../common/middleware/validate';
+import { expenseTypesRouter } from '../expense-types/expense-types.routes';
+import { expensesRouter } from '../expenses/expenses.routes';
+import { incomesRouter } from '../incomes/incomes.routes';
 import * as controller from './finance.controller';
 
 const router = Router();
-const idParam = z.object({ expenseTypeId: z.string().uuid() });
-const expenseIdParam = z.object({ expenseId: z.string().uuid() });
-const incomeIdParam = z.object({ incomeId: z.string().uuid() });
-
 router.use(authenticate, requireTenantContext);
 
 router.get('/summary', requirePermission('finance.view'), controller.getSummary);
 router.get('/transactions', requirePermission('finance.view'), controller.getTransactions);
-router.get(
-  '/expense-types',
-  requirePermission('finance.view'),
-  validate({ query: listExpenseTypesQuerySchema }),
-  controller.getExpenseTypes,
-);
-router.get(
-  '/expense-types/:expenseTypeId',
-  requirePermission('finance.view'),
-  validate({ params: idParam }),
-  controller.getExpenseTypeDetail,
-);
-router.post(
-  '/expense-types',
-  requirePermission('finance.manage'),
-  validate({ body: createExpenseTypeSchema }),
-  controller.postExpenseType,
-);
-router.patch(
-  '/expense-types/:expenseTypeId',
-  requirePermission('finance.manage'),
-  validate({ params: idParam, body: updateExpenseTypeSchema }),
-  controller.patchExpenseType,
-);
 
-router.get(
-  '/expenses',
-  requirePermission('finance.view'),
-  validate({ query: listExpensesQuerySchema }),
-  controller.getExpenses,
-);
-router.get(
-  '/expenses/:expenseId',
-  requirePermission('finance.view'),
-  validate({ params: expenseIdParam }),
-  controller.getExpenseDetail,
-);
-router.post(
-  '/expenses',
-  requirePermission('finance.manage'),
-  validate({ body: createExpenseSchema }),
-  controller.postExpense,
-);
-
-router.get(
-  '/incomes',
-  requirePermission('finance.view'),
-  validate({ query: listIncomesQuerySchema }),
-  controller.getIncomes,
-);
-router.get(
-  '/incomes/:incomeId',
-  requirePermission('finance.view'),
-  validate({ params: incomeIdParam }),
-  controller.getIncomeDetail,
-);
-router.post(
-  '/incomes',
-  requirePermission('finance.manage'),
-  validate({ body: createIncomeSchema }),
-  controller.postIncome,
-);
+router.use('/expense-types', expenseTypesRouter);
+router.use('/expenses', expensesRouter);
+router.use('/incomes', incomesRouter);
 
 export const financeRouter = router;
-

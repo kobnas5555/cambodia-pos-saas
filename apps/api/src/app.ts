@@ -26,7 +26,14 @@ import { shiftsRouter } from './modules/shifts/shifts.routes';
 import { tenantsRouter } from './modules/tenants/tenants.routes';
 import { transfersRouter } from './modules/transfers/transfers.routes';
 import { billingRouter } from './modules/billing/billing.routes';
+import { expenseTypesRouter } from './modules/expense-types/expense-types.routes';
+import { expensesRouter } from './modules/expenses/expenses.routes';
+import { incomesRouter } from './modules/incomes/incomes.routes';
 import { paymentIntegrationsRouter } from './modules/payments/payment-integrations.routes';
+import { purchasePaymentsRouter } from './modules/purchase-payments/purchase-payments.routes';
+import { stockAdjustmentsRouter } from './modules/stock-adjustments/stock-adjustments.routes';
+import { stockBalancesRouter } from './modules/stock-balances/stock-balances.routes';
+import { stockMovementsRouter } from './modules/stock-movements/stock-movements.routes';
 
 export function createApp() {
   const app = express();
@@ -77,10 +84,17 @@ export function createApp() {
   app.use('/api/v1/payments', paymentsRouter);
   app.use('/api/v1/returns', returnsRouter);
   app.use('/api/v1/purchases', purchasingRouter);
+  app.use('/api/v1/purchase-payments', purchasePaymentsRouter);
   app.use('/api/v1/inventory', inventoryRouter);
+  app.use('/api/v1/stock-balances', stockBalancesRouter);
+  app.use('/api/v1/stock-movements', stockMovementsRouter);
+  app.use('/api/v1/stock-adjustments', stockAdjustmentsRouter);
   app.use('/api/v1/transfers', transfersRouter);
   app.use('/api/v1/shifts', shiftsRouter);
   app.use('/api/v1/finance', financeRouter);
+  app.use('/api/v1/expense-types', expenseTypesRouter);
+  app.use('/api/v1/expenses', expensesRouter);
+  app.use('/api/v1/incomes', incomesRouter);
   app.use('/api/v1/reports', reportsRouter);
   app.use('/api/v1/billing', billingRouter);
   app.use('/api/v1/settings', settingsRouter);
