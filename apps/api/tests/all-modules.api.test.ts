@@ -2087,6 +2087,32 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(adjOutMovements.body.data).toHaveLength(1);
     expect(Number(adjOutMovements.body.data[0].quantityOut)).toBe(12);
     expect(adjOutMovements.body.data[0].balanceAfter).toBe('3.0000');
+    expect(adjOutMovements.body.pagination).toBeDefined();
+    expect(adjOutMovements.body.pagination.total).toBeGreaterThanOrEqual(1);
+
+    // Verify all 13 schema fields of stock_movements
+    const verifiedMovement = adjOutMovements.body.data[0];
+    expect(verifiedMovement.id).toBeDefined();
+    expect(verifiedMovement.tenantId).toBeDefined();
+    expect(verifiedMovement.branchId).toBe(branchId);
+    expect(verifiedMovement.productId).toBe(tracked1Id);
+    expect(verifiedMovement.movementType).toBe('adjustment_out');
+    expect(verifiedMovement.quantityIn).toBeDefined();
+    expect(Number(verifiedMovement.quantityOut)).toBe(12);
+    expect(Number(verifiedMovement.balanceAfter)).toBe(3);
+    expect(verifiedMovement.referenceType).toBeDefined();
+    expect(verifiedMovement.referenceId).toBeDefined();
+    expect(verifiedMovement.notes).toBeDefined();
+    expect(verifiedMovement.createdBy).toBeDefined();
+    expect(verifiedMovement.createdAt).toBeDefined();
+
+    // Verify single movement detail endpoint GET /api/v1/inventory/movements/:movementId
+    const singleMovRes = await request(app)
+      .get(`/api/v1/inventory/movements/${verifiedMovement.id}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(singleMovRes.status).toBe(200);
+    expect(singleMovRes.body.data.id).toBe(verifiedMovement.id);
+    expect(singleMovRes.body.data.productId).toBe(tracked1Id);
 
     const adjListRes = await request(app)
       .get(`/api/v1/inventory/adjustments?branchId=${branchId}&search=${encodeURIComponent('audit')}`)

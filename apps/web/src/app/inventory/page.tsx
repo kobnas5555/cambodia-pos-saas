@@ -5,9 +5,13 @@ import {
   ArrowDownRight,
   ArrowLeftRight,
   ArrowUpRight,
+  Building2,
+  Check,
   CheckCircle2,
   ClipboardList,
   Clock,
+  Copy,
+  FileText,
   History,
   Package,
   Plus,
@@ -15,13 +19,16 @@ import {
   RefreshCw,
   Search,
   SlidersHorizontal,
+  Tag,
   Trash2,
+  User,
   Warehouse,
   X,
   XCircle,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppShell } from '@/components/AppShell';
+import { DataTablePagination } from '@/components/DataTablePagination';
 import { useAuth } from '@/contexts/AuthContext';
 import { useI18n } from '@/contexts/I18nContext';
 import { apiRequest, ApiClientError } from '@/lib/api';
@@ -43,15 +50,21 @@ interface BalanceRow {
 
 interface MovementRow {
   id: string;
+  tenantId?: string;
+  branchId?: string;
+  productId: string;
   movementType: string;
   quantityIn: string;
   quantityOut: string;
   balanceAfter: string;
+  referenceType?: string | null;
+  referenceId?: string | null;
   notes: string | null;
+  createdBy?: string;
   createdAt: string;
-  branch: { name: string };
-  product: { id: string; name: string; sku: string };
-  employee?: { name: string } | null;
+  branch: { id?: string; name: string; branchCode?: string };
+  product: { id: string; name: string; sku: string; barcode?: string | null };
+  employee?: { id?: string; name: string; employeeCode?: string } | null;
 }
 
 interface AdjustmentRow {
@@ -125,6 +138,18 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Pagination State
+  const [movementPage, setMovementPage] = useState(1);
+  const [movementPageSize, setMovementPageSize] = useState(25);
+
+  const handleCopyId = (id: string) => {
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 2000);
+  };
 
   // New Stock Adjustment Modal State
   const [adjOpen, setAdjOpen] = useState(false);
@@ -291,18 +316,30 @@ export default function InventoryPage() {
       b.branch.name.toLowerCase().includes(q),
   );
 
-  const filteredMovements = movements.filter((m) => {
-    const matchesSearch =
-      !q ||
-      m.product.name.toLowerCase().includes(q) ||
-      m.product.sku.toLowerCase().includes(q) ||
-      (m.notes ?? '').toLowerCase().includes(q) ||
-      m.branch.name.toLowerCase().includes(q);
+  const filteredMovements = useMemo(() => {
+    return movements.filter((m) => {
+      const matchesSearch =
+        !q ||
+        m.id.toLowerCase().includes(q) ||
+        m.product.name.toLowerCase().includes(q) ||
+        m.product.sku.toLowerCase().includes(q) ||
+        (m.product.barcode ?? '').toLowerCase().includes(q) ||
+        (m.notes ?? '').toLowerCase().includes(q) ||
+        m.branch.name.toLowerCase().includes(q) ||
+        (m.referenceType ?? '').toLowerCase().includes(q) ||
+        (m.referenceId ?? '').toLowerCase().includes(q) ||
+        (m.employee?.name ?? '').toLowerCase().includes(q);
 
-    if (!matchesSearch) return false;
-    if (movementTypeFilter !== 'ALL' && m.movementType !== movementTypeFilter) return false;
-    return true;
-  });
+      if (!matchesSearch) return false;
+      if (movementTypeFilter !== 'ALL' && m.movementType !== movementTypeFilter) return false;
+      return true;
+    });
+  }, [movements, q, movementTypeFilter]);
+
+  const paginatedMovements = useMemo(() => {
+    const start = (movementPage - 1) * movementPageSize;
+    return filteredMovements.slice(start, start + movementPageSize);
+  }, [filteredMovements, movementPage, movementPageSize]);
 
   const filteredAdjustments = adjustments.filter(
     (a) =>
@@ -721,69 +758,214 @@ export default function InventoryPage() {
                 </tbody>
               </table>
             ) : tab === 'movements' ? (
-              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Product</th>
-                    <th className="px-4 py-3">Branch</th>
-                    <th className="px-4 py-3">{t.inventory.movementType}</th>
-                    <th className="px-4 py-3">{t.inventory.quantityIn}</th>
-                    <th className="px-4 py-3">{t.inventory.quantityOut}</th>
-                    <th className="px-4 py-3">{t.inventory.balanceAfter}</th>
-                    <th className="px-4 py-3">Logged By</th>
-                    <th className="px-4 py-3">Notes / Reason</th>
-                    <th className="px-4 py-3">Timestamp</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredMovements.length === 0 ? (
+              <>
+                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                  <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
-                        {t.common.noData}
-                      </td>
+                      <th className="px-4 py-3.5">Movement &amp; ID</th>
+                      <th className="px-4 py-3.5">Product &amp; SKU</th>
+                      <th className="px-4 py-3.5">Branch</th>
+                      <th className="px-4 py-3.5">{t.inventory.movementType}</th>
+                      <th className="px-4 py-3.5 text-right">{t.inventory.quantityIn}</th>
+                      <th className="px-4 py-3.5 text-right">{t.inventory.quantityOut}</th>
+                      <th className="px-4 py-3.5 text-right">{t.inventory.balanceAfter}</th>
+                      <th className="px-4 py-3.5">Reference</th>
+                      <th className="px-4 py-3.5">Logged By &amp; Notes</th>
                     </tr>
-                  ) : (
-                    filteredMovements.map((m) => {
-                      const isIncrease = Number(m.quantityIn) > 0;
-                      return (
-                        <tr key={m.id} className="hover:bg-slate-50/50">
-                          <td className="px-4 py-3">
-                            <div className="font-medium text-slate-900">{m.product.name}</div>
-                            <div className="font-mono text-[11px] text-slate-500">{m.product.sku}</div>
-                          </td>
-                          <td className="px-4 py-3 text-slate-600">{m.branch.name}</td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`inline-flex items-center gap-1 rounded px-2 py-0.5 font-mono text-xs font-semibold ${
-                                isIncrease
-                                  ? 'bg-emerald-50 text-emerald-700'
-                                  : 'bg-rose-50 text-rose-700'
-                              }`}
-                            >
-                              {isIncrease ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                              {m.movementType}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 font-semibold text-emerald-700">
-                            {Number(m.quantityIn) > 0 ? `+${m.quantityIn}` : '0'}
-                          </td>
-                          <td className="px-4 py-3 font-semibold text-rose-700">
-                            {Number(m.quantityOut) > 0 ? `-${m.quantityOut}` : '0'}
-                          </td>
-                          <td className="px-4 py-3 font-bold text-slate-900">{m.balanceAfter}</td>
-                          <td className="px-4 py-3 text-xs text-slate-600">
-                            {m.employee?.name ?? '—'}
-                          </td>
-                          <td className="px-4 py-3 text-xs text-slate-500">{m.notes || '—'}</td>
-                          <td className="px-4 py-3 text-xs text-slate-400">
-                            {new Date(m.createdAt).toLocaleString()}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredMovements.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                          {t.common.noData}
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedMovements.map((m) => {
+                        const isIncrease = Number(m.quantityIn) > 0;
+                        return (
+                          <tr key={m.id} className="hover:bg-slate-50/50 transition">
+                            {/* Movement & ID */}
+                            <td className="px-4 py-3">
+                              <div className="space-y-0.5">
+                                <div className="text-xs font-medium text-slate-800">
+                                  {new Date(m.createdAt).toLocaleString()}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyId(m.id)}
+                                    title={`Movement ID: ${m.id}`}
+                                    className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded px-1 transition"
+                                  >
+                                    <span>ID: {m.id.slice(0, 8)}...</span>
+                                    {copiedId === m.id ? (
+                                      <Check className="h-2.5 w-2.5 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="h-2.5 w-2.5" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Product & SKU */}
+                            <td className="px-4 py-3">
+                              <div className="space-y-0.5">
+                                <div className="font-semibold text-slate-900">{m.product.name}</div>
+                                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+                                  <span className="font-mono rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700">
+                                    SKU: {m.product.sku}
+                                  </span>
+                                  {m.product.barcode && (
+                                    <span className="font-mono text-slate-400">
+                                      {m.product.barcode}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyId(m.productId)}
+                                    title={`Product ID: ${m.productId}`}
+                                    className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded px-1 transition"
+                                  >
+                                    <span>Prod ID: {m.productId.slice(0, 8)}...</span>
+                                    {copiedId === m.productId ? (
+                                      <Check className="h-2.5 w-2.5 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="h-2.5 w-2.5" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Branch */}
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-1 text-slate-700 font-medium">
+                                <Building2 className="h-3 w-3 text-slate-400" />
+                                <span>{m.branch.name}</span>
+                              </div>
+                              {m.branch.branchCode && (
+                                <span className="font-mono text-[10px] text-slate-400">
+                                  ({m.branch.branchCode})
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Type */}
+                            <td className="px-4 py-3">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-mono text-xs font-semibold ${
+                                  isIncrease
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : 'bg-rose-50 text-rose-700'
+                                }`}
+                              >
+                                {isIncrease ? (
+                                  <ArrowUpRight className="h-3 w-3" />
+                                ) : (
+                                  <ArrowDownRight className="h-3 w-3" />
+                                )}
+                                {m.movementType}
+                              </span>
+                            </td>
+
+                            {/* Qty In */}
+                            <td className="px-4 py-3 text-right">
+                              <div className="font-mono font-semibold text-emerald-700">
+                                {Number(m.quantityIn) > 0
+                                  ? `+${Number(m.quantityIn).toLocaleString(undefined, {
+                                      minimumFractionDigits: 0,
+                                      maximumFractionDigits: 4,
+                                    })}`
+                                  : '0'}
+                              </div>
+                            </td>
+
+                            {/* Qty Out */}
+                            <td className="px-4 py-3 text-right">
+                              <div className="font-mono font-semibold text-rose-700">
+                                {Number(m.quantityOut) > 0
+                                  ? `-${Number(m.quantityOut).toLocaleString(undefined, {
+                                      minimumFractionDigits: 0,
+                                      maximumFractionDigits: 4,
+                                    })}`
+                                  : '0'}
+                              </div>
+                            </td>
+
+                            {/* Balance After */}
+                            <td className="px-4 py-3 text-right">
+                              <div className="font-mono font-bold text-slate-900">
+                                {Number(m.balanceAfter).toLocaleString(undefined, {
+                                  minimumFractionDigits: 0,
+                                  maximumFractionDigits: 4,
+                                })}
+                              </div>
+                            </td>
+
+                            {/* Reference */}
+                            <td className="px-4 py-3 text-xs">
+                              {m.referenceType ? (
+                                <div className="space-y-0.5">
+                                  <div className="font-semibold text-slate-800">
+                                    {m.referenceType}
+                                  </div>
+                                  {m.referenceId && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyId(m.referenceId!)}
+                                      title={`Ref ID: ${m.referenceId}`}
+                                      className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded px-1 transition"
+                                    >
+                                      <span>Ref: {m.referenceId.slice(0, 8)}...</span>
+                                      {copiedId === m.referenceId ? (
+                                        <Check className="h-2.5 w-2.5 text-emerald-600" />
+                                      ) : (
+                                        <Copy className="h-2.5 w-2.5" />
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+
+                            {/* Logged By & Notes */}
+                            <td className="px-4 py-3 text-xs">
+                              <div className="flex items-center gap-1 text-slate-700 font-medium">
+                                <User className="h-3 w-3 text-slate-400" />
+                                <span>{m.employee?.name ?? '—'}</span>
+                              </div>
+                              {m.notes ? (
+                                <div className="mt-0.5 text-[11px] text-slate-500 italic max-w-xs truncate" title={m.notes}>
+                                  {m.notes}
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-slate-400">—</div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                <DataTablePagination
+                  currentPage={movementPage}
+                  pageSize={movementPageSize}
+                  totalItems={filteredMovements.length}
+                  onPageChange={setMovementPage}
+                  onPageSizeChange={(sz) => {
+                    setMovementPageSize(sz);
+                    setMovementPage(1);
+                  }}
+                  itemName="stock movements"
+                />
+              </>
             ) : (
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">

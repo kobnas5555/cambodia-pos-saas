@@ -1,4 +1,7 @@
-import { createStockAdjustmentSchema } from '@cambodia-pos/shared';
+import {
+  createStockAdjustmentSchema,
+  listStockMovementsQuerySchema,
+} from '@cambodia-pos/shared';
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../common/middleware/authenticate';
@@ -11,7 +14,18 @@ const router = Router();
 router.use(authenticate, requireTenantContext);
 
 router.get('/balances', requirePermission('inventory.view'), controller.getBalances);
-router.get('/movements', requirePermission('inventory.view'), controller.getMovements);
+router.get(
+  '/movements',
+  requirePermission('inventory.view'),
+  validate({ query: listStockMovementsQuerySchema }),
+  controller.getMovements,
+);
+router.get(
+  '/movements/:movementId',
+  requirePermission('inventory.view'),
+  validate({ params: z.object({ movementId: z.string().uuid() }) }),
+  controller.getMovementDetail,
+);
 router.get('/adjustments', requirePermission('inventory.view'), controller.getAdjustments);
 router.get(
   '/adjustments/:adjustmentId',

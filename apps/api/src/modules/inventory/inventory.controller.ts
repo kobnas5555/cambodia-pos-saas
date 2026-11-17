@@ -12,12 +12,26 @@ export const getBalances = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const getMovements = asyncHandler(async (req: Request, res: Response) => {
-  const data = await inventoryService.listStockMovements(req.tenant!.tenantId, {
-    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
-    productId: typeof req.query.productId === 'string' ? req.query.productId : undefined,
-    movementType: typeof req.query.movementType === 'string' ? req.query.movementType : undefined,
-    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+  const result = await inventoryService.listStockMovements(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data: (result as any).items ?? result,
+    pagination: (result as any).total !== undefined
+      ? {
+          total: (result as any).total,
+          page: (result as any).page,
+          limit: (result as any).limit,
+          totalPages: (result as any).totalPages,
+        }
+      : undefined,
   });
+});
+
+export const getMovementDetail = asyncHandler(async (req: Request, res: Response) => {
+  const data = await inventoryService.getStockMovementById(
+    req.tenant!.tenantId,
+    req.params.movementId,
+  );
   res.json({ success: true, data });
 });
 

@@ -224,7 +224,7 @@ export function createInMemoryPrisma() {
         continue;
       }
       if (key === 'employee' && val && typeof val === 'object') {
-        const employee = store.employees.find((e) => e.id === row.employeeId);
+        const employee = store.employees.find((e) => e.id === row.employeeId || e.id === row.createdBy);
         if (!employee || !matchesWhere(employee, val)) return false;
         continue;
       }
@@ -1868,18 +1868,48 @@ export function createInMemoryPrisma() {
     },
 
     stockMovement: {
-      findMany: async ({ where, include, orderBy, take }: { where?: Row; include?: Row; orderBy?: any; take?: number } = {}) =>
-        applyOrderBy(
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.stockMovements.filter((sm) => matchesWhere(sm, where)).length,
+      findFirst: async ({ where, include }: { where?: Row; include?: Row } = {}) => {
+        const found = store.stockMovements.find((sm) => matchesWhere(sm, where));
+        if (!found) return null;
+        return {
+          ...found,
+          ...(include?.branch ? { branch: store.branches.find((b) => b.id === found.branchId) ?? null } : {}),
+          ...(include?.product ? { product: store.products.find((p) => p.id === found.productId) ?? null } : {}),
+          ...(include?.employee ? { employee: store.employees.find((e) => e.id === found.createdBy) ?? null } : {}),
+        };
+      },
+      findUnique: async ({ where, include }: { where: Row; include?: Row }) => {
+        const found = store.stockMovements.find((sm) => matchesWhere(sm, where));
+        if (!found) return null;
+        return {
+          ...found,
+          ...(include?.branch ? { branch: store.branches.find((b) => b.id === found.branchId) ?? null } : {}),
+          ...(include?.product ? { product: store.products.find((p) => p.id === found.productId) ?? null } : {}),
+          ...(include?.employee ? { employee: store.employees.find((e) => e.id === found.createdBy) ?? null } : {}),
+        };
+      },
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: { where?: Row; include?: Row; orderBy?: any; skip?: number; take?: number } = {}) => {
+        const sorted = applyOrderBy(
           store.stockMovements.filter((sm) => matchesWhere(sm, where)),
           orderBy,
-        )
-          .slice(0, take ?? 200)
-          .map((sm) => ({
-            ...sm,
-            ...(include?.branch ? { branch: store.branches.find((b) => b.id === sm.branchId) } : {}),
-            ...(include?.product ? { product: store.products.find((p) => p.id === sm.productId) } : {}),
-            ...(include?.employee ? { employee: store.employees.find((e) => e.id === sm.createdBy) } : {}),
-          })),
+        );
+        const start = skip ?? 0;
+        const page = sorted.slice(start, start + (take ?? 200));
+        return page.map((sm) => ({
+          ...sm,
+          ...(include?.branch ? { branch: store.branches.find((b) => b.id === sm.branchId) ?? null } : {}),
+          ...(include?.product ? { product: store.products.find((p) => p.id === sm.productId) ?? null } : {}),
+          ...(include?.employee ? { employee: store.employees.find((e) => e.id === sm.createdBy) ?? null } : {}),
+        }));
+      },
       create: async ({ data }: { data: Row }) => {
         const row = {
           id: uuid(),
