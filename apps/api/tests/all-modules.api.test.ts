@@ -2254,6 +2254,41 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
       .send({ name: 'Rent', description: 'Shop lease' });
     expect(rentTypeRes.status).toBe(201);
 
+    // Verify all 5 user-specified fields of expense_types: id, tenant_id, name, description, status
+    expect(rentTypeRes.body.data.id).toBeDefined();
+    expect(rentTypeRes.body.data.tenantId).toBeDefined();
+    expect(rentTypeRes.body.data.name).toBe('Rent');
+    expect(rentTypeRes.body.data.description).toBe('Shop lease');
+    expect(rentTypeRes.body.data.status).toBe('ACTIVE');
+
+    // Verify GET /api/v1/finance/expense-types/:expenseTypeId
+    const getSingleTypeRes = await request(app)
+      .get(`/api/v1/finance/expense-types/${rentTypeRes.body.data.id}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(getSingleTypeRes.status).toBe(200);
+    expect(getSingleTypeRes.body.data.id).toBe(rentTypeRes.body.data.id);
+    expect(getSingleTypeRes.body.data.name).toBe('Rent');
+
+    // Verify listing with pagination and search filter
+    const listTypesRes = await request(app)
+      .get('/api/v1/finance/expense-types?search=Rent&page=1&limit=10')
+      .set('Authorization', `Bearer ${token}`);
+    expect(listTypesRes.status).toBe(200);
+    expect(listTypesRes.body.data).toHaveLength(1);
+    expect(listTypesRes.body.pagination).toBeDefined();
+    expect(listTypesRes.body.pagination.total).toBe(1);
+
+    // Verify unique constraint: tenant_id + name cannot have duplicates
+    await expect(
+      mockPrisma.current.expenseType.create({
+        data: {
+          tenantId: rentTypeRes.body.data.tenantId,
+          name: 'Rent',
+          status: 'ACTIVE',
+        },
+      }),
+    ).rejects.toThrow(/Unique constraint failed/i);
+
     const dupTypeRes = await request(app)
       .post('/api/v1/finance/expense-types')
       .set('Authorization', `Bearer ${token}`)

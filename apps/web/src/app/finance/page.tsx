@@ -10,7 +10,9 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Calendar,
+  Check,
   CheckCircle2,
+  Copy,
   DollarSign,
   Edit2,
   ListOrdered,
@@ -33,9 +35,12 @@ const EXCHANGE_RATE = 4100;
 
 interface ExpenseTypeRow {
   id: string;
+  tenantId?: string;
   name: string;
   description: string | null;
   status: 'ACTIVE' | 'INACTIVE';
+  createdAt?: string;
+  updatedAt?: string;
   _count?: { expenses: number };
 }
 
@@ -183,6 +188,14 @@ export default function FinancePage() {
   const [typeDesc, setTypeDesc] = useState('');
   const [typeStatus, setTypeStatus] = useState<'ACTIVE' | 'INACTIVE'>('ACTIVE');
   const [typeError, setTypeError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyId = (id: string) => {
+    if (!navigator.clipboard) return;
+    void navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 2000);
+  };
 
   // Expense Modal
   const [expModal, setExpModal] = useState(false);
@@ -1294,7 +1307,24 @@ export default function FinancePage() {
                 ) : (
                   expenseTypes.map((et) => (
                     <tr key={et.id} className="hover:bg-slate-50/50 transition">
-                      <td className="px-4 py-3 font-semibold text-slate-900">{et.name}</td>
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-slate-900">{et.name}</div>
+                        <div className="flex items-center gap-1 font-mono text-[10px] text-slate-400">
+                          <span>#{et.id.slice(0, 8)}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyId(et.id)}
+                            title="Copy Expense Type ID"
+                            className="rounded p-0.5 hover:bg-slate-200"
+                          >
+                            {copiedId === et.id ? (
+                              <Check className="h-2.5 w-2.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="h-2.5 w-2.5 text-slate-400" />
+                            )}
+                          </button>
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-slate-600 text-xs">{et.description || '—'}</td>
                       <td className="px-4 py-3 font-mono text-xs">{et._count?.expenses ?? 0}</td>
                       <td className="px-4 py-3">

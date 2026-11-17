@@ -2121,6 +2121,8 @@ export function createInMemoryPrisma() {
     },
 
     expenseType: {
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.expenseTypes.filter((et) => matchesWhere(et, where)).length,
       findUnique: async ({ where }: { where: Row }) => {
         if (where.tenantId_name) {
           const { tenantId, name } = where.tenantId_name;
@@ -2130,19 +2132,43 @@ export function createInMemoryPrisma() {
         }
         return store.expenseTypes.find((et) => matchesWhere(et, where)) ?? null;
       },
-      findFirst: async ({ where }: { where: Row }) =>
-        store.expenseTypes.find((et) => matchesWhere(et, where)) ?? null,
-      findMany: async ({ where, include, orderBy }: { where?: Row; include?: Row; orderBy?: any } = {}) =>
-        applyOrderBy(
+      findFirst: async ({ where, include }: { where?: Row; include?: Row } = {}) => {
+        const found = store.expenseTypes.find((et) => matchesWhere(et, where));
+        if (!found) return null;
+        return {
+          ...found,
+          ...(include?._count
+            ? { _count: { expenses: store.expenses.filter((ex) => ex.expenseTypeId === found.id).length } }
+            : {}),
+        };
+      },
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: { where?: Row; include?: Row; orderBy?: any; skip?: number; take?: number } = {}) => {
+        const sorted = applyOrderBy(
           store.expenseTypes.filter((et) => matchesWhere(et, where)),
           orderBy,
-        ).map((et) => ({
+        );
+        const start = skip ?? 0;
+        const page = sorted.slice(start, start + (take ?? 100));
+        return page.map((et) => ({
           ...et,
           ...(include?._count
             ? { _count: { expenses: store.expenses.filter((ex) => ex.expenseTypeId === et.id).length } }
             : {}),
-        })),
+        }));
+      },
       create: async ({ data }: { data: Row }) => {
+        const exists = store.expenseTypes.some(
+          (et) => et.tenantId === data.tenantId && et.name.toLowerCase() === data.name.toLowerCase(),
+        );
+        if (exists) {
+          throw new Error('Unique constraint failed on the fields: (`tenant_id`,`name`)');
+        }
         const now = new Date();
         const row = { id: uuid(), status: 'ACTIVE', createdAt: now, updatedAt: now, ...data };
         store.expenseTypes.push(row);

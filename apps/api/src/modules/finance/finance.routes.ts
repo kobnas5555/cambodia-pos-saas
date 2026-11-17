@@ -2,6 +2,7 @@ import {
   createExpenseSchema,
   createExpenseTypeSchema,
   createIncomeSchema,
+  listExpenseTypesQuerySchema,
   updateExpenseTypeSchema,
 } from '@cambodia-pos/shared';
 import { Router } from 'express';
@@ -19,7 +20,18 @@ router.use(authenticate, requireTenantContext);
 
 router.get('/summary', requirePermission('finance.view'), controller.getSummary);
 router.get('/transactions', requirePermission('finance.view'), controller.getTransactions);
-router.get('/expense-types', requirePermission('finance.view'), controller.getExpenseTypes);
+router.get(
+  '/expense-types',
+  requirePermission('finance.view'),
+  validate({ query: listExpenseTypesQuerySchema }),
+  controller.getExpenseTypes,
+);
+router.get(
+  '/expense-types/:expenseTypeId',
+  requirePermission('finance.view'),
+  validate({ params: idParam }),
+  controller.getExpenseTypeDetail,
+);
 router.post(
   '/expense-types',
   requirePermission('finance.manage'),

@@ -6,6 +6,7 @@ import {
   type CreateExpenseTypeInput,
   type CreateIncomeInput,
   type CurrencyCode,
+  type ListExpenseTypesQueryInput,
   type UpdateExpenseTypeInput,
 } from '@cambodia-pos/shared';
 import { AppError } from '../../common/errors/AppError';
@@ -49,12 +50,59 @@ function buildDateFilter(dateFrom?: string, dateTo?: string): { gte?: Date; lte?
   return filter.gte || filter.lte ? filter : undefined;
 }
 
-export async function listExpenseTypes(tenantId: string) {
-  return prisma.expenseType.findMany({
-    where: { tenantId },
-    include: { _count: { select: { expenses: true } } },
-    orderBy: { name: 'asc' },
+export async function listExpenseTypes(
+  tenantId: string,
+  filters: Partial<ListExpenseTypesQueryInput> | string = {},
+) {
+  const query = typeof filters === 'string' ? { search: filters } : filters;
+  const where: any = {
+    tenantId,
+    ...(query.status && query.status !== 'ALL' ? { status: query.status } : {}),
+    ...(query.search?.trim()
+      ? {
+          OR: [
+            { name: { contains: query.search.trim(), mode: 'insensitive' } },
+            { description: { contains: query.search.trim(), mode: 'insensitive' } },
+          ],
+        }
+      : {}),
+  };
+
+  const hasPagination = query.page !== undefined || query.limit !== undefined;
+  const page = query.page ? Math.max(1, Number(query.page)) : 1;
+  const limit = query.limit ? Math.min(100, Math.max(1, Number(query.limit))) : 50;
+  const skip = hasPagination ? (page - 1) * limit : undefined;
+  const take = hasPagination ? limit : undefined;
+
+  const [items, total] = await Promise.all([
+    prisma.expenseType.findMany({
+      where,
+      include: { _count: { select: { expenses: true } } },
+      orderBy: { name: 'asc' },
+      ...(skip !== undefined ? { skip } : {}),
+      ...(take !== undefined ? { take } : {}),
+    }),
+    prisma.expenseType.count({ where }),
+  ]);
+
+  const totalPages = Math.ceil(total / (limit || 1)) || 1;
+
+  return Object.assign(items, {
+    items,
+    total,
+    page,
+    limit,
+    totalPages,
   });
+}
+
+export async function getExpenseTypeById(tenantId: string, expenseTypeId: string) {
+  const et = await prisma.expenseType.findFirst({
+    where: { id: expenseTypeId, tenantId },
+    include: { _count: { select: { expenses: true } } },
+  });
+  if (!et) throw AppError.notFound('Expense type not found', 'EXPENSE_TYPE_NOT_FOUND');
+  return et;
 }
 
 export async function createExpenseType(

@@ -518,6 +518,15 @@ export const closeShiftSchema = z
     path: ['closingCash'],
   });
 
+export const listExpenseTypesQuerySchema = z.object({
+  search: z.string().trim().optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE', 'ALL']).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListExpenseTypesQueryInput = z.infer<typeof listExpenseTypesQuerySchema>;
+
 export const createExpenseTypeSchema = z.object({
   name: z.string().trim().min(1).max(120),
   description: z.string().trim().max(400).optional().nullable(),

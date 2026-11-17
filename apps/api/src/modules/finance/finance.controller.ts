@@ -12,7 +12,23 @@ const strQuery = (val: unknown): string | undefined =>
   typeof val === 'string' && val.trim().length > 0 ? val.trim() : undefined;
 
 export const getExpenseTypes = asyncHandler(async (req: Request, res: Response) => {
-  const data = await financeService.listExpenseTypes(req.tenant!.tenantId);
+  const result = await financeService.listExpenseTypes(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data: (result as any).items ?? result,
+    pagination: (result as any).total !== undefined
+      ? {
+          total: (result as any).total,
+          page: (result as any).page,
+          limit: (result as any).limit,
+          totalPages: (result as any).totalPages,
+        }
+      : undefined,
+  });
+});
+
+export const getExpenseTypeDetail = asyncHandler(async (req: Request, res: Response) => {
+  const data = await financeService.getExpenseTypeById(req.tenant!.tenantId, req.params.expenseTypeId);
   res.json({ success: true, data });
 });
 
