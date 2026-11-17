@@ -2114,6 +2114,19 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(singleMovRes.body.data.id).toBe(verifiedMovement.id);
     expect(singleMovRes.body.data.productId).toBe(tracked1Id);
 
+    // Verify invalid movementType query parameter is rejected by validation schema
+    const invalidTypeRes = await request(app)
+      .get('/api/v1/inventory/movements?movementType=invalid_type_xyz')
+      .set('Authorization', `Bearer ${token}`);
+    expect(invalidTypeRes.status).toBe(400);
+    expect(invalidTypeRes.body.error.code).toBe('VALIDATION_ERROR');
+
+    // Verify valid movementType query parameter is accepted
+    const validTypeRes = await request(app)
+      .get('/api/v1/inventory/movements?movementType=adjustment_out')
+      .set('Authorization', `Bearer ${token}`);
+    expect(validTypeRes.status).toBe(200);
+
     const adjListRes = await request(app)
       .get(`/api/v1/inventory/adjustments?branchId=${branchId}&search=${encodeURIComponent('audit')}`)
       .set('Authorization', `Bearer ${token}`);

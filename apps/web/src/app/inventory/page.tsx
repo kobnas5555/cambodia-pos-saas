@@ -111,15 +111,81 @@ interface ProductHistoryInfo {
 }
 
 const MOVEMENT_TYPES = [
-  'opening_stock',
   'purchase_in',
   'sale_out',
   'sale_return_in',
+  'purchase_return_out',
   'adjustment_in',
   'adjustment_out',
+  'opening_stock',
   'transfer_in',
   'transfer_out',
 ] as const;
+
+const MOVEMENT_TYPE_META: Record<
+  string,
+  {
+    label: string;
+    badgeClass: string;
+    isIncrease: boolean;
+    description: string;
+  }
+> = {
+  purchase_in: {
+    label: 'Purchase In',
+    badgeClass: 'bg-emerald-50 text-emerald-700 border border-emerald-200',
+    isIncrease: true,
+    description: 'Goods received from vendor purchase order',
+  },
+  sale_out: {
+    label: 'Sale Out',
+    badgeClass: 'bg-rose-50 text-rose-700 border border-rose-200',
+    isIncrease: false,
+    description: 'Stock deducted for POS sale order',
+  },
+  sale_return_in: {
+    label: 'Sale Return In',
+    badgeClass: 'bg-sky-50 text-sky-700 border border-sky-200',
+    isIncrease: true,
+    description: 'Restocked items returned by customer',
+  },
+  purchase_return_out: {
+    label: 'Purchase Return Out',
+    badgeClass: 'bg-amber-50 text-amber-700 border border-amber-200',
+    isIncrease: false,
+    description: 'Stock returned back to supplier',
+  },
+  adjustment_in: {
+    label: 'Adjustment In',
+    badgeClass: 'bg-teal-50 text-teal-700 border border-teal-200',
+    isIncrease: true,
+    description: 'Manual adjustment stock surplus / audit count',
+  },
+  adjustment_out: {
+    label: 'Adjustment Out',
+    badgeClass: 'bg-purple-50 text-purple-700 border border-purple-200',
+    isIncrease: false,
+    description: 'Manual adjustment stock deficit / expired / damaged',
+  },
+  opening_stock: {
+    label: 'Opening Stock',
+    badgeClass: 'bg-blue-50 text-blue-700 border border-blue-200',
+    isIncrease: true,
+    description: 'Initial balance on product creation',
+  },
+  transfer_in: {
+    label: 'Transfer In',
+    badgeClass: 'bg-indigo-50 text-indigo-700 border border-indigo-200',
+    isIncrease: true,
+    description: 'Stock received from branch transfer',
+  },
+  transfer_out: {
+    label: 'Transfer Out',
+    badgeClass: 'bg-orange-50 text-orange-700 border border-orange-200',
+    isIncrease: false,
+    description: 'Stock dispatched for branch transfer',
+  },
+};
 
 type TabKey = 'overview' | 'movements' | 'adjustments' | 'low_stock';
 
@@ -518,15 +584,21 @@ export default function InventoryPage() {
               <select
                 aria-label="Filter movements by type"
                 value={movementTypeFilter}
-                onChange={(e) => setMovementTypeFilter(e.target.value)}
+                onChange={(e) => {
+                  setMovementTypeFilter(e.target.value);
+                  setMovementPage(1);
+                }}
                 className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none"
               >
-                <option value="ALL">All Movement Types</option>
-                {MOVEMENT_TYPES.map((mt) => (
-                  <option key={mt} value={mt}>
-                    {mt}
-                  </option>
-                ))}
+                <option value="ALL">All Movement Types ({MOVEMENT_TYPES.length})</option>
+                {MOVEMENT_TYPES.map((mt) => {
+                  const meta = MOVEMENT_TYPE_META[mt];
+                  return (
+                    <option key={mt} value={mt}>
+                      {meta?.label ?? mt} ({mt})
+                    </option>
+                  );
+                })}
               </select>
             )}
 
@@ -856,20 +928,31 @@ export default function InventoryPage() {
 
                             {/* Type */}
                             <td className="px-4 py-3">
-                              <span
-                                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-mono text-xs font-semibold ${
-                                  isIncrease
-                                    ? 'bg-emerald-50 text-emerald-700'
-                                    : 'bg-rose-50 text-rose-700'
-                                }`}
-                              >
-                                {isIncrease ? (
-                                  <ArrowUpRight className="h-3 w-3" />
-                                ) : (
-                                  <ArrowDownRight className="h-3 w-3" />
-                                )}
-                                {m.movementType}
-                              </span>
+                              {(() => {
+                                const meta = MOVEMENT_TYPE_META[m.movementType];
+                                return (
+                                  <div className="space-y-0.5">
+                                    <span
+                                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                                        meta?.badgeClass ??
+                                        (isIncrease
+                                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                          : 'bg-rose-50 text-rose-700 border border-rose-200')
+                                      }`}
+                                    >
+                                      {isIncrease ? (
+                                        <ArrowUpRight className="h-3 w-3" />
+                                      ) : (
+                                        <ArrowDownRight className="h-3 w-3" />
+                                      )}
+                                      <span>{meta?.label ?? m.movementType}</span>
+                                    </span>
+                                    <div className="font-mono text-[10px] text-slate-400 pl-1">
+                                      {m.movementType}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                             </td>
 
                             {/* Qty In */}
@@ -1359,15 +1442,26 @@ export default function InventoryPage() {
                                 {new Date(m.createdAt).toLocaleString()}
                               </td>
                               <td className="px-3 py-2">
-                                <span
-                                  className={`rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold ${
-                                    isAdd
-                                      ? 'bg-emerald-50 text-emerald-700'
-                                      : 'bg-rose-50 text-rose-700'
-                                  }`}
-                                >
-                                  {m.movementType}
-                                </span>
+                                {(() => {
+                                  const meta = MOVEMENT_TYPE_META[m.movementType];
+                                  return (
+                                    <span
+                                      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold ${
+                                        meta?.badgeClass ??
+                                        (isAdd
+                                          ? 'bg-emerald-50 text-emerald-700'
+                                          : 'bg-rose-50 text-rose-700')
+                                      }`}
+                                    >
+                                      {isAdd ? (
+                                        <ArrowUpRight className="h-2.5 w-2.5" />
+                                      ) : (
+                                        <ArrowDownRight className="h-2.5 w-2.5" />
+                                      )}
+                                      <span>{meta?.label ?? m.movementType}</span>
+                                    </span>
+                                  );
+                                })()}
                               </td>
                               <td className="px-3 py-2 font-bold">
                                 {isAdd ? (

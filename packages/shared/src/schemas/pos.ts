@@ -352,11 +352,36 @@ export type ListPurchaseItemsQueryInput = z.infer<typeof listPurchaseItemsQueryS
 // Phase 7: Stock Adjustments & Movements
 // ============================================================================
 
+export const CORE_STOCK_MOVEMENT_TYPES = [
+  'purchase_in',
+  'sale_out',
+  'sale_return_in',
+  'purchase_return_out',
+  'adjustment_in',
+  'adjustment_out',
+  'opening_stock',
+] as const;
+
+export const STOCK_MOVEMENT_TYPES = [
+  'purchase_in',
+  'sale_out',
+  'sale_return_in',
+  'purchase_return_out',
+  'adjustment_in',
+  'adjustment_out',
+  'opening_stock',
+  'transfer_in',
+  'transfer_out',
+] as const;
+
+export const stockMovementTypeSchema = z.enum(STOCK_MOVEMENT_TYPES);
+export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
+
 export const listStockMovementsQuerySchema = z.object({
   search: z.string().optional(),
   branchId: z.string().uuid().optional(),
   productId: z.string().uuid().optional(),
-  movementType: z.string().optional(),
+  movementType: z.union([stockMovementTypeSchema, z.literal('ALL')]).optional(),
   referenceType: z.string().optional(),
   referenceId: z.string().uuid().optional(),
   createdBy: z.string().uuid().optional(),

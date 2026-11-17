@@ -2,20 +2,12 @@ import {
   addDecimals,
   compareDecimals,
   subDecimals,
+  type StockMovementType,
 } from '@cambodia-pos/shared';
 import type { Prisma } from '@prisma/client';
 import { AppError } from '../errors/AppError';
 
-export type StockMovementType =
-  | 'purchase_in'
-  | 'sale_out'
-  | 'sale_return_in'
-  | 'purchase_return_out'
-  | 'adjustment_in'
-  | 'adjustment_out'
-  | 'opening_stock'
-  | 'transfer_out'
-  | 'transfer_in';
+export type { StockMovementType };
 
 export interface AdjustStockParams {
   tenantId: string;
