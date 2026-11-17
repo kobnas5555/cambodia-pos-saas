@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { AppError } from '../../common/errors/AppError';
 import { prisma } from '../../db/prisma';
 
 export interface RecordActivityParams {
@@ -156,4 +157,16 @@ export async function getActivityLogStats(tenantId: string) {
     statusTransitions,
     topModules,
   };
+}
+
+export async function getActivityLogById(tenantId: string, logId: string) {
+  const log = await prisma.activityLog.findFirst({
+    where: { id: logId, tenantId },
+    include: {
+      user: { select: { id: true, name: true, email: true } },
+      employee: { select: { id: true, name: true, employeeCode: true, position: true } },
+    },
+  });
+  if (!log) throw AppError.notFound('Activity log record not found', 'ACTIVITY_LOG_NOT_FOUND');
+  return log;
 }

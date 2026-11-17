@@ -2387,6 +2387,8 @@ export function createInMemoryPrisma() {
           store.exchangeRates.filter((er) => matchesWhere(er, where)),
           orderBy,
         ).slice(0, take ?? 50),
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.exchangeRates.filter((er) => matchesWhere(er, where)).length,
       create: async ({ data }: { data: Row }) => {
         const now = new Date();
         const row = {
@@ -2473,6 +2475,15 @@ export function createInMemoryPrisma() {
     },
 
     activityLog: {
+      findFirst: async ({ where }: { where?: Row } = {}) => {
+        const found = store.activityLogs.find((l) => matchesWhere(l, where));
+        if (!found) return null;
+        return {
+          ...found,
+          user: store.users.find((u) => u.id === found.userId) ?? null,
+          employee: store.employees.find((e) => e.id === found.employeeId) ?? null,
+        };
+      },
       findMany: async ({
         where,
         take = 50,

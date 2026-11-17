@@ -1,6 +1,18 @@
+import { AppError } from '../../common/errors/AppError';
 import { prisma } from '../../db/prisma';
 import { recordActivity } from '../activity-logs/activity-logs.service';
 import type { ActorInfo } from '../tenants/tenants.service';
+
+export async function getExchangeRateById(tenantId: string, id: string) {
+  const row = await prisma.exchangeRate.findFirst({
+    where: { id, tenantId },
+  });
+  if (!row) throw AppError.notFound('Exchange rate record not found', 'EXCHANGE_RATE_NOT_FOUND');
+  return {
+    ...row,
+    rate: row.rate.toString(),
+  };
+}
 
 export async function listExchangeRates(
   tenantId: string,

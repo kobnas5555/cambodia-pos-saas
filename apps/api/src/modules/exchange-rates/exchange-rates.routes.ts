@@ -13,9 +13,12 @@ const createExchangeRateSchema = z.object({
   rate: z.string().min(1),
 });
 
+const idParam = z.object({ id: z.string().uuid() });
+
 router.use(authenticate, requireTenantContext);
 
 router.get('/', requirePermission('settings.view'), controller.getExchangeRates);
+router.get('/:id', requirePermission('settings.view'), validate({ params: idParam }), controller.getExchangeRate);
 router.post(
   '/',
   requirePermission('settings.manage'),

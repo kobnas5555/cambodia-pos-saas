@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { asyncHandler } from '../../common/utils/asyncHandler';
-import { getActivityLogStats, listTenantActivityLogs } from './activity-logs.service';
+import { getActivityLogById, getActivityLogStats, listTenantActivityLogs } from './activity-logs.service';
 
 export const getActivityLogs = asyncHandler(async (req: Request, res: Response) => {
   const tenantId = req.tenant!.tenantId;
@@ -37,5 +37,14 @@ export const getStats = asyncHandler(async (req: Request, res: Response) => {
   res.json({
     success: true,
     data: stats,
+  });
+});
+
+export const getActivityLog = asyncHandler(async (req: Request, res: Response) => {
+  const tenantId = req.tenant!.tenantId;
+  const data = await getActivityLogById(tenantId, req.params.logId);
+  res.json({
+    success: true,
+    data,
   });
 });

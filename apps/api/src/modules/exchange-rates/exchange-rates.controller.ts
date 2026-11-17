@@ -22,6 +22,11 @@ export const getExchangeRates = asyncHandler(async (req: Request, res: Response)
   });
 });
 
+export const getExchangeRate = asyncHandler(async (req: Request, res: Response) => {
+  const data = await exchangeRatesService.getExchangeRateById(req.tenant!.tenantId, req.params.id);
+  res.json({ success: true, data });
+});
+
 export const postExchangeRate = asyncHandler(async (req: Request, res: Response) => {
   const data = await exchangeRatesService.createExchangeRate(req.tenant!.tenantId, actor(req), req.body);
   res.status(201).json({ success: true, data });
