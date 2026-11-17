@@ -2185,21 +2185,50 @@ export function createInMemoryPrisma() {
     expense: {
       count: async ({ where }: { where?: Row } = {}) =>
         store.expenses.filter((ex) => matchesWhere(ex, where)).length,
-      findMany: async ({ where, include, orderBy, take }: { where?: Row; include?: Row; orderBy?: any; take?: number } = {}) =>
-        applyOrderBy(
+      findFirst: async ({ where, include }: { where?: Row; include?: Row } = {}) => {
+        const found = store.expenses.find((ex) => matchesWhere(ex, where));
+        if (!found) return null;
+        return {
+          ...found,
+          ...(include?.branch ? { branch: store.branches.find((b) => b.id === found.branchId) } : {}),
+          ...(include?.expenseType
+            ? { expenseType: store.expenseTypes.find((et) => et.id === found.expenseTypeId) }
+            : {}),
+          ...(include?.employee ? { employee: store.employees.find((e) => e.id === found.employeeId) } : {}),
+        };
+      },
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: { where?: Row; include?: Row; orderBy?: any; skip?: number; take?: number } = {}) => {
+        const sorted = applyOrderBy(
           store.expenses.filter((ex) => matchesWhere(ex, where)),
           orderBy,
-        )
-          .slice(0, take ?? 200)
-          .map((ex) => ({
-            ...ex,
-            ...(include?.branch ? { branch: store.branches.find((b) => b.id === ex.branchId) } : {}),
-            ...(include?.expenseType
-              ? { expenseType: store.expenseTypes.find((et) => et.id === ex.expenseTypeId) }
-              : {}),
-            ...(include?.employee ? { employee: store.employees.find((e) => e.id === ex.employeeId) } : {}),
-          })),
+        );
+        const start = skip ?? 0;
+        const page = sorted.slice(start, start + (take ?? 200));
+        return page.map((ex) => ({
+          ...ex,
+          ...(include?.branch ? { branch: store.branches.find((b) => b.id === ex.branchId) } : {}),
+          ...(include?.expenseType
+            ? { expenseType: store.expenseTypes.find((et) => et.id === ex.expenseTypeId) }
+            : {}),
+          ...(include?.employee ? { employee: store.employees.find((e) => e.id === ex.employeeId) } : {}),
+        }));
+      },
       create: async ({ data, include }: { data: Row; include?: Row }) => {
+        const exists = store.expenses.some(
+          (ex) =>
+            ex.tenantId === data.tenantId &&
+            ex.branchId === data.branchId &&
+            ex.expenseNumber === data.expenseNumber,
+        );
+        if (exists) {
+          throw new Error('Unique constraint failed on the fields: (`tenant_id`,`branch_id`,`expense_number`)');
+        }
         const now = new Date();
         const row = {
           id: uuid(),

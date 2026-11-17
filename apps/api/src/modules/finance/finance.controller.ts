@@ -48,14 +48,32 @@ export const patchExpenseType = asyncHandler(async (req: Request, res: Response)
 });
 
 export const getExpenses = asyncHandler(async (req: Request, res: Response) => {
-  const data = await financeService.listExpenses(req.tenant!.tenantId, {
+  const result = await financeService.listExpenses(req.tenant!.tenantId, {
     branchId: strQuery(req.query.branchId),
     expenseTypeId: strQuery(req.query.expenseTypeId),
     paymentMethod: strQuery(req.query.paymentMethod),
     search: strQuery(req.query.search),
     dateFrom: strQuery(req.query.dateFrom),
     dateTo: strQuery(req.query.dateTo),
+    page: req.query.page !== undefined ? Number(req.query.page) : undefined,
+    limit: req.query.limit !== undefined ? Number(req.query.limit) : undefined,
   });
+  res.json({
+    success: true,
+    data: (result as any).items ?? result,
+    pagination: (result as any).total !== undefined
+      ? {
+          total: (result as any).total,
+          page: (result as any).page,
+          limit: (result as any).limit,
+          totalPages: (result as any).totalPages,
+        }
+      : undefined,
+  });
+});
+
+export const getExpenseDetail = asyncHandler(async (req: Request, res: Response) => {
+  const data = await financeService.getExpenseById(req.tenant!.tenantId, req.params.expenseId);
   res.json({ success: true, data });
 });
 

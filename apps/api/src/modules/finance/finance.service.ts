@@ -7,6 +7,7 @@ import {
   type CreateIncomeInput,
   type CurrencyCode,
   type ListExpenseTypesQueryInput,
+  type ListExpensesQueryInput,
   type UpdateExpenseTypeInput,
 } from '@cambodia-pos/shared';
 import { AppError } from '../../common/errors/AppError';
@@ -188,33 +189,71 @@ export async function updateExpenseType(
   });
 }
 
-export async function listExpenses(tenantId: string, filters: FinanceListFilters = {}) {
+export async function listExpenses(
+  tenantId: string,
+  filters: FinanceListFilters & Partial<ListExpensesQueryInput> = {},
+) {
   const dateRange = buildDateFilter(filters.dateFrom, filters.dateTo);
-  return prisma.expense.findMany({
-    where: {
-      tenantId,
-      ...(filters.branchId ? { branchId: filters.branchId } : {}),
-      ...(filters.expenseTypeId ? { expenseTypeId: filters.expenseTypeId } : {}),
-      ...(filters.paymentMethod ? { paymentMethod: filters.paymentMethod } : {}),
-      ...(dateRange ? { expenseDate: dateRange } : {}),
-      ...(filters.search
-        ? {
-            OR: [
-              { expenseNumber: { contains: filters.search, mode: 'insensitive' } },
-              { description: { contains: filters.search, mode: 'insensitive' } },
-              { expenseType: { name: { contains: filters.search, mode: 'insensitive' } } },
-            ],
-          }
-        : {}),
-    },
-    include: {
-      branch: { select: { id: true, name: true } },
-      expenseType: { select: { id: true, name: true } },
-      employee: { select: { id: true, name: true } },
-    },
-    orderBy: { expenseDate: 'desc' },
-    take: 150,
+  const where: any = {
+    tenantId,
+    ...(filters.branchId ? { branchId: filters.branchId } : {}),
+    ...(filters.expenseTypeId ? { expenseTypeId: filters.expenseTypeId } : {}),
+    ...(filters.paymentMethod ? { paymentMethod: filters.paymentMethod } : {}),
+    ...(dateRange ? { expenseDate: dateRange } : {}),
+    ...(filters.search
+      ? {
+          OR: [
+            { expenseNumber: { contains: filters.search, mode: 'insensitive' } },
+            { description: { contains: filters.search, mode: 'insensitive' } },
+            { expenseType: { name: { contains: filters.search, mode: 'insensitive' } } },
+          ],
+        }
+      : {}),
+  };
+
+  const hasPagination = filters.page !== undefined || filters.limit !== undefined;
+  const page = filters.page ? Math.max(1, Number(filters.page)) : 1;
+  const limit = filters.limit ? Math.min(100, Math.max(1, Number(filters.limit))) : 150;
+  const skip = hasPagination ? (page - 1) * limit : undefined;
+  const take = hasPagination ? limit : 150;
+
+  const [items, total] = await Promise.all([
+    prisma.expense.findMany({
+      where,
+      include: {
+        branch: { select: { id: true, name: true, branchCode: true } },
+        expenseType: { select: { id: true, name: true } },
+        employee: { select: { id: true, name: true, employeeCode: true } },
+      },
+      orderBy: { expenseDate: 'desc' },
+      ...(skip !== undefined ? { skip } : {}),
+      ...(take !== undefined ? { take } : {}),
+    }),
+    prisma.expense.count({ where }),
+  ]);
+
+  const totalPages = Math.ceil(total / (limit || 1)) || 1;
+
+  return Object.assign(items, {
+    items,
+    total,
+    page,
+    limit,
+    totalPages,
   });
+}
+
+export async function getExpenseById(tenantId: string, expenseId: string) {
+  const expense = await prisma.expense.findFirst({
+    where: { id: expenseId, tenantId },
+    include: {
+      branch: { select: { id: true, name: true, branchCode: true } },
+      expenseType: { select: { id: true, name: true } },
+      employee: { select: { id: true, name: true, employeeCode: true } },
+    },
+  });
+  if (!expense) throw AppError.notFound('Expense not found', 'EXPENSE_NOT_FOUND');
+  return expense;
 }
 
 export async function createExpense(

@@ -46,12 +46,18 @@ interface ExpenseTypeRow {
 
 interface ExpenseRow {
   id: string;
+  tenantId?: string;
+  branchId?: string;
+  expenseTypeId?: string;
+  employeeId?: string;
   expenseNumber: string;
   description: string | null;
   amount: string;
   currencyCode: CurrencyCode;
+  exchangeRate?: string;
   paymentMethod: string;
   expenseDate: string;
+  createdAt?: string;
   expenseType: { id: string; name: string };
   branch: { id: string; name: string };
   employee?: { id: string; name: string } | null;
@@ -1163,7 +1169,22 @@ export default function FinancePage() {
                     expenses.map((ex) => (
                       <tr key={ex.id} className="hover:bg-slate-50/50 transition">
                         <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-900">
-                          {ex.expenseNumber}
+                          <div>{ex.expenseNumber}</div>
+                          <div className="flex items-center gap-1 font-mono text-[10px] text-slate-400 font-normal">
+                            <span>#{ex.id.slice(0, 8)}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyId(ex.id)}
+                              title="Copy Expense ID"
+                              className="rounded p-0.5 hover:bg-slate-200"
+                            >
+                              {copiedId === ex.id ? (
+                                <Check className="h-2.5 w-2.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="h-2.5 w-2.5 text-slate-400" />
+                              )}
+                            </button>
+                          </div>
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">
                           {new Date(ex.expenseDate).toLocaleDateString()}

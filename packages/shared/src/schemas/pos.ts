@@ -547,6 +547,19 @@ export const createExpenseSchema = z.object({
   expenseDate: z.string().optional(),
 });
 
+export const listExpensesQuerySchema = z.object({
+  search: z.string().trim().optional(),
+  branchId: z.string().uuid().optional(),
+  expenseTypeId: z.string().uuid().optional(),
+  paymentMethod: z.string().optional(),
+  dateFrom: z.string().trim().optional(),
+  dateTo: z.string().trim().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListExpensesQueryInput = z.infer<typeof listExpensesQuerySchema>;
+
 export const createIncomeSchema = z.object({
   branchId: z.string().uuid(),
   description: z.string().trim().min(2).max(500),

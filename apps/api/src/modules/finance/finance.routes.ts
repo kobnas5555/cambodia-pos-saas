@@ -3,6 +3,7 @@ import {
   createExpenseTypeSchema,
   createIncomeSchema,
   listExpenseTypesQuerySchema,
+  listExpensesQuerySchema,
   updateExpenseTypeSchema,
 } from '@cambodia-pos/shared';
 import { Router } from 'express';
@@ -15,6 +16,7 @@ import * as controller from './finance.controller';
 
 const router = Router();
 const idParam = z.object({ expenseTypeId: z.string().uuid() });
+const expenseIdParam = z.object({ expenseId: z.string().uuid() });
 
 router.use(authenticate, requireTenantContext);
 
@@ -45,7 +47,18 @@ router.patch(
   controller.patchExpenseType,
 );
 
-router.get('/expenses', requirePermission('finance.view'), controller.getExpenses);
+router.get(
+  '/expenses',
+  requirePermission('finance.view'),
+  validate({ query: listExpensesQuerySchema }),
+  controller.getExpenses,
+);
+router.get(
+  '/expenses/:expenseId',
+  requirePermission('finance.view'),
+  validate({ params: expenseIdParam }),
+  controller.getExpenseDetail,
+);
 router.post(
   '/expenses',
   requirePermission('finance.manage'),

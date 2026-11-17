@@ -2414,7 +2414,7 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
 
     // d) Current expenses (Utilities 41,000 KHR = $10.00 ABA) + Backdated expense ($50.00 CASH on 2025-05-10)
     const todayStr = new Date().toISOString().slice(0, 10);
-    await request(app)
+    const expRes = await request(app)
       .post('/api/v1/finance/expenses')
       .set('Authorization', `Bearer ${token}`)
       .send({
@@ -2426,6 +2426,59 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
         paymentMethod: 'ABA',
         expenseDate: todayStr,
       });
+    expect(expRes.status).toBe(201);
+
+    // Verify all 13 schema fields of expenses
+    const expData = expRes.body.data;
+    expect(expData.id).toBeDefined();
+    expect(expData.tenantId).toBeDefined();
+    expect(expData.branchId).toBe(branchId);
+    expect(expData.expenseTypeId).toBe(utilTypeId);
+    expect(expData.employeeId).toBeDefined();
+    expect(expData.expenseNumber).toBeDefined();
+    expect(expData.description).toBe('EDC Monthly Bill');
+    expect(expData.amount).toBeDefined();
+    expect(expData.currencyCode).toBe('KHR');
+    expect(expData.exchangeRate).toBeDefined();
+    expect(expData.paymentMethod).toBe('ABA');
+    expect(expData.expenseDate).toBeDefined();
+    expect(expData.createdAt).toBeDefined();
+
+    // Verify GET /api/v1/finance/expenses/:expenseId
+    const singleExpRes = await request(app)
+      .get(`/api/v1/finance/expenses/${expData.id}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(singleExpRes.status).toBe(200);
+    expect(singleExpRes.body.data.id).toBe(expData.id);
+    expect(singleExpRes.body.data.expenseNumber).toBe(expData.expenseNumber);
+
+    // Verify GET /api/v1/finance/expenses with pagination and search
+    const pagedExpRes = await request(app)
+      .get(`/api/v1/finance/expenses?branchId=${branchId}&search=EDC&page=1&limit=10`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(pagedExpRes.status).toBe(200);
+    expect(pagedExpRes.body.data).toHaveLength(1);
+    expect(pagedExpRes.body.pagination).toBeDefined();
+    expect(pagedExpRes.body.pagination.page).toBe(1);
+    expect(pagedExpRes.body.pagination.limit).toBe(10);
+    expect(pagedExpRes.body.pagination.total).toBe(1);
+
+    // Verify unique constraint: tenant_id + branch_id + expense_number cannot have duplicates
+    await expect(
+      mockPrisma.current.expense.create({
+        data: {
+          tenantId: expData.tenantId,
+          branchId,
+          expenseTypeId: utilTypeId,
+          employeeId: expData.employeeId,
+          expenseNumber: expData.expenseNumber,
+          amount: 10,
+          currencyCode: 'USD',
+          exchangeRate: 4100,
+          paymentMethod: 'CASH',
+        },
+      }),
+    ).rejects.toThrow(/Unique constraint failed/i);
 
     await request(app)
       .post('/api/v1/finance/expenses')
