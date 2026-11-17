@@ -37,6 +37,9 @@ const EXCHANGE_RATE = 4100;
 
 interface ShiftRow {
   id: string;
+  tenantId?: string;
+  branchId?: string;
+  employeeId?: string;
   shiftNumber: string;
   openingCash: string;
   expectedCash: string;
@@ -1085,13 +1088,13 @@ export default function ShiftsPage() {
                     <div className="font-mono text-xs text-slate-500">
                       {detail.shiftNumber} &bull; {detail.branch.name}
                     </div>
-                    <div className="flex items-center gap-1.5 mt-0.5 font-mono text-[11px] text-slate-500">
+                    <div className="flex flex-wrap items-center gap-1.5 mt-0.5 font-mono text-[11px] text-slate-500">
                       <span>ID: {detail.id}</span>
                       <button
                         type="button"
                         onClick={() => copyToClipboard(detail.id, `modal-${detail.id}`)}
                         className="rounded p-0.5 text-slate-400 hover:text-slate-700 transition"
-                        title="Copy UUID"
+                        title="Copy Shift UUID"
                       >
                         {copiedId === `modal-${detail.id}` ? (
                           <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -1099,6 +1102,8 @@ export default function ShiftsPage() {
                           <Copy className="h-3.5 w-3.5" />
                         )}
                       </button>
+                      {detail.employeeId && <span>&bull; Emp: {detail.employeeId.slice(0, 8)}...</span>}
+                      {detail.branchId && <span>&bull; Br: {detail.branchId.slice(0, 8)}...</span>}
                     </div>
                   </div>
                 </div>

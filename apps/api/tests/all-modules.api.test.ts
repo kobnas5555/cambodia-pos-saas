@@ -2593,7 +2593,7 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(shiftsListRes.body.pagination.limit).toBe(10);
     expect(shiftsListRes.body.pagination.total).toBe(1);
 
-    // Verify all 13 schema fields of shifts
+    // Verify all 12 user-specified fields of shifts (plus closingCash and notes)
     const verifiedShift = shiftsListRes.body.data.find((s: any) => s.id === shiftId);
     expect(verifiedShift).toBeDefined();
     expect(verifiedShift.id).toBe(shiftId);
@@ -2606,10 +2606,25 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(Number(verifiedShift.actualCash)).toBe(69);
     expect(Number(verifiedShift.closingCash)).toBe(69);
     expect(Number(verifiedShift.cashDifference)).toBe(-1);
-    expect(verifiedShift.status).toBe('CLOSED');
-    expect(verifiedShift.notes).toBe('Evening closing count');
     expect(verifiedShift.openedAt).toBeDefined();
     expect(verifiedShift.closedAt).toBeDefined();
+    expect(verifiedShift.status).toBe('CLOSED');
+    expect(verifiedShift.notes).toBe('Evening closing count');
+
+    // Verify unique constraint: tenant_id + branch_id + shift_number cannot have duplicates
+    await expect(
+      mockPrisma.current.shift.create({
+        data: {
+          tenantId: verifiedShift.tenantId,
+          branchId,
+          shiftNumber: verifiedShift.shiftNumber,
+          employeeId: verifiedShift.employeeId,
+          openingCash: 10,
+          expectedCash: 10,
+          status: 'OPEN',
+        },
+      }),
+    ).rejects.toThrow(/Unique constraint failed/i);
 
     // Purchase ($12 total, $5 paid, $7 due)
     await request(app)

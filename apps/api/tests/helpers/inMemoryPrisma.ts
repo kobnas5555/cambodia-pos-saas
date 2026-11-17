@@ -2064,6 +2064,12 @@ export function createInMemoryPrisma() {
         }));
       },
       create: async ({ data, include }: { data: Row; include?: Row }) => {
+        const exists = store.shifts.some(
+          (s) => s.tenantId === data.tenantId && s.branchId === data.branchId && s.shiftNumber === data.shiftNumber,
+        );
+        if (exists) {
+          throw new Error('Unique constraint failed on the fields: (`tenant_id`,`branch_id`,`shift_number`)');
+        }
         const now = new Date();
         const row = {
           id: uuid(),
