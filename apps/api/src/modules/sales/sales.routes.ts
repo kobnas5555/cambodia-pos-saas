@@ -39,4 +39,3 @@ returnsRouter.get('/', requirePermission('sales.view'), validate({ query: listSa
 returnsRouter.post('/', requirePermission('sales.refund'), validate({ body: createSaleReturnSchema }), controller.postSaleReturn);
 returnsRouter.get('/:returnId', requirePermission('sales.view'), validate({ params: returnIdParam }), controller.getSaleReturn);
 returnsRouter.get('/:returnId/items', requirePermission('sales.view'), validate({ params: returnIdParam, query: listSaleReturnItemsQuerySchema }), controller.getSaleReturnItems);
-

@@ -11,7 +11,10 @@ const actor = (req: Request) => ({
 export const getPayments = asyncHandler(async (req: Request, res: Response) => {
   const result = await purchasePaymentsService.listPurchasePayments(
     req.tenant!.tenantId,
-    req.query as any,
+    {
+      ...req.query,
+      ...(req.params.purchaseId ? { purchaseId: req.params.purchaseId } : {}),
+    } as any,
   );
   res.json({
     success: true,

@@ -94,42 +94,7 @@ export async function upsertSystemSettings(
   return getSystemSettings(tenantId, input.branchId ?? undefined);
 }
 
-export async function createExchangeRate(
-  tenantId: string,
-  actor: ActorInfo,
-  input: { baseCurrency: string; targetCurrency: string; rate: string },
-) {
-  return prisma.$transaction(async (tx) => {
-    const rateRecord = await tx.exchangeRate.create({
-      data: {
-        tenantId,
-        baseCurrency: input.baseCurrency,
-        targetCurrency: input.targetCurrency,
-        rate: input.rate,
-      },
-    });
-
-    await recordActivity(
-      {
-        tenantId,
-        userId: actor.userId,
-        employeeId: actor.employeeId,
-        action: 'exchange_rate.updated',
-        module: 'settings',
-        recordType: 'ExchangeRate',
-        recordId: rateRecord.id,
-        newValues: input,
-        ipAddress: actor.ipAddress,
-      },
-      tx,
-    );
-
-    return {
-      ...rateRecord,
-      rate: rateRecord.rate.toString(),
-    };
-  });
-}
+export { createExchangeRate, listExchangeRates } from '../exchange-rates/exchange-rates.service';
 
 export async function getUserPreferences(tenantId: string, userId: string): Promise<UserPreferences> {
   const row = await prisma.setting.findFirst({
