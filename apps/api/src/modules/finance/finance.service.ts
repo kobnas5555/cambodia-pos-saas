@@ -8,6 +8,7 @@ import {
   type CurrencyCode,
   type ListExpenseTypesQueryInput,
   type ListExpensesQueryInput,
+  type ListIncomesQueryInput,
   type UpdateExpenseTypeInput,
 } from '@cambodia-pos/shared';
 import { AppError } from '../../common/errors/AppError';
@@ -320,29 +321,66 @@ export async function createExpense(
   });
 }
 
-export async function listIncomes(tenantId: string, filters: FinanceListFilters = {}) {
+export async function listIncomes(
+  tenantId: string,
+  filters: FinanceListFilters & Partial<ListIncomesQueryInput> = {},
+) {
   const dateRange = buildDateFilter(filters.dateFrom, filters.dateTo);
-  return prisma.income.findMany({
-    where: {
-      tenantId,
-      ...(filters.branchId ? { branchId: filters.branchId } : {}),
-      ...(dateRange ? { incomeDate: dateRange } : {}),
-      ...(filters.search
-        ? {
-            OR: [
-              { incomeNumber: { contains: filters.search, mode: 'insensitive' } },
-              { description: { contains: filters.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    },
-    include: {
-      branch: { select: { id: true, name: true } },
-      employee: { select: { id: true, name: true } },
-    },
-    orderBy: { incomeDate: 'desc' },
-    take: 150,
+  const where: any = {
+    tenantId,
+    ...(filters.branchId ? { branchId: filters.branchId } : {}),
+    ...(dateRange ? { incomeDate: dateRange } : {}),
+    ...(filters.search
+      ? {
+          OR: [
+            { incomeNumber: { contains: filters.search, mode: 'insensitive' } },
+            { description: { contains: filters.search, mode: 'insensitive' } },
+          ],
+        }
+      : {}),
+  };
+
+  const hasPagination = filters.page !== undefined || filters.limit !== undefined;
+  const page = filters.page ? Math.max(1, Number(filters.page)) : 1;
+  const limit = filters.limit ? Math.min(100, Math.max(1, Number(filters.limit))) : 150;
+  const skip = hasPagination ? (page - 1) * limit : undefined;
+  const take = hasPagination ? limit : 150;
+
+  const [items, total] = await Promise.all([
+    prisma.income.findMany({
+      where,
+      include: {
+        branch: { select: { id: true, name: true, branchCode: true } },
+        employee: { select: { id: true, name: true, employeeCode: true } },
+      },
+      orderBy: { incomeDate: 'desc' },
+      ...(skip !== undefined ? { skip } : {}),
+      ...(take !== undefined ? { take } : {}),
+    }),
+    prisma.income.count({ where }),
+  ]);
+
+  const totalPages = Math.ceil(total / (limit || 1)) || 1;
+
+  return Object.assign(items, {
+    items,
+    total,
+    page,
+    limit,
+    totalPages,
   });
+}
+
+export async function getIncomeById(tenantId: string, incomeId: string) {
+  const income = await prisma.income.findFirst({
+    where: { id: incomeId, tenantId },
+    include: {
+      branch: { select: { id: true, name: true, branchCode: true } },
+      employee: { select: { id: true, name: true, employeeCode: true } },
+    },
+  });
+  if (!income) throw AppError.notFound('Income record not found', 'INCOME_NOT_FOUND');
+  return income;
 }
 
 export async function createIncome(

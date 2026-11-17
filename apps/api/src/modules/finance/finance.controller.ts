@@ -83,12 +83,30 @@ export const postExpense = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const getIncomes = asyncHandler(async (req: Request, res: Response) => {
-  const data = await financeService.listIncomes(req.tenant!.tenantId, {
+  const result = await financeService.listIncomes(req.tenant!.tenantId, {
     branchId: strQuery(req.query.branchId),
     search: strQuery(req.query.search),
     dateFrom: strQuery(req.query.dateFrom),
     dateTo: strQuery(req.query.dateTo),
+    page: req.query.page !== undefined ? Number(req.query.page) : undefined,
+    limit: req.query.limit !== undefined ? Number(req.query.limit) : undefined,
   });
+  res.json({
+    success: true,
+    data: (result as any).items ?? result,
+    pagination: (result as any).total !== undefined
+      ? {
+          total: (result as any).total,
+          page: (result as any).page,
+          limit: (result as any).limit,
+          totalPages: (result as any).totalPages,
+        }
+      : undefined,
+  });
+});
+
+export const getIncomeDetail = asyncHandler(async (req: Request, res: Response) => {
+  const data = await financeService.getIncomeById(req.tenant!.tenantId, req.params.incomeId);
   res.json({ success: true, data });
 });
 

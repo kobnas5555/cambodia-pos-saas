@@ -2253,18 +2253,44 @@ export function createInMemoryPrisma() {
     income: {
       count: async ({ where }: { where?: Row } = {}) =>
         store.incomes.filter((i) => matchesWhere(i, where)).length,
-      findMany: async ({ where, include, orderBy, take }: { where?: Row; include?: Row; orderBy?: any; take?: number } = {}) =>
-        applyOrderBy(
+      findFirst: async ({ where, include }: { where?: Row; include?: Row } = {}) => {
+        const found = store.incomes.find((inc) => matchesWhere(inc, where));
+        if (!found) return null;
+        return {
+          ...found,
+          ...(include?.branch ? { branch: store.branches.find((b) => b.id === found.branchId) } : {}),
+          ...(include?.employee ? { employee: store.employees.find((e) => e.id === found.employeeId) } : {}),
+        };
+      },
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: { where?: Row; include?: Row; orderBy?: any; skip?: number; take?: number } = {}) => {
+        const sorted = applyOrderBy(
           store.incomes.filter((i) => matchesWhere(i, where)),
           orderBy,
-        )
-          .slice(0, take ?? 200)
-          .map((inc) => ({
-            ...inc,
-            ...(include?.branch ? { branch: store.branches.find((b) => b.id === inc.branchId) } : {}),
-            ...(include?.employee ? { employee: store.employees.find((e) => e.id === inc.employeeId) } : {}),
-          })),
+        );
+        const start = skip ?? 0;
+        const page = sorted.slice(start, start + (take ?? 200));
+        return page.map((inc) => ({
+          ...inc,
+          ...(include?.branch ? { branch: store.branches.find((b) => b.id === inc.branchId) } : {}),
+          ...(include?.employee ? { employee: store.employees.find((e) => e.id === inc.employeeId) } : {}),
+        }));
+      },
       create: async ({ data, include }: { data: Row; include?: Row }) => {
+        const exists = store.incomes.some(
+          (inc) =>
+            inc.tenantId === data.tenantId &&
+            inc.branchId === data.branchId &&
+            inc.incomeNumber === data.incomeNumber,
+        );
+        if (exists) {
+          throw new Error('Unique constraint failed on the fields: (`tenant_id`,`branch_id`,`income_number`)');
+        }
         const now = new Date();
         const row = {
           id: uuid(),

@@ -569,6 +569,17 @@ export const createIncomeSchema = z.object({
   incomeDate: z.string().optional(),
 });
 
+export const listIncomesQuerySchema = z.object({
+  search: z.string().trim().optional(),
+  branchId: z.string().uuid().optional(),
+  dateFrom: z.string().trim().optional(),
+  dateTo: z.string().trim().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListIncomesQueryInput = z.infer<typeof listIncomesQuerySchema>;
+
 // ============================================================================
 // Phase 10: System Settings & Exchange Rates
 // ============================================================================

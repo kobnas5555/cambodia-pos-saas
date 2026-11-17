@@ -2494,7 +2494,7 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
       });
 
     // e) Additional income ($25.00 USD today)
-    await request(app)
+    const incRes = await request(app)
       .post('/api/v1/finance/incomes')
       .set('Authorization', `Bearer ${token}`)
       .send({
@@ -2504,6 +2504,56 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
         currencyCode: 'USD',
         incomeDate: todayStr,
       });
+    expect(incRes.status).toBe(201);
+
+    // Verify all 11 schema fields of incomes
+    const incData = incRes.body.data;
+    expect(incData.id).toBeDefined();
+    expect(incData.tenantId).toBeDefined();
+    expect(incData.branchId).toBe(branchId);
+    expect(incData.employeeId).toBeDefined();
+    expect(incData.incomeNumber).toBeDefined();
+    expect(incData.description).toBe('Booth Sublease');
+    expect(incData.amount).toBeDefined();
+    expect(incData.currencyCode).toBe('USD');
+    expect(incData.exchangeRate).toBeDefined();
+    expect(incData.incomeDate).toBeDefined();
+    expect(incData.createdAt).toBeDefined();
+
+    // Verify GET /api/v1/finance/incomes/:incomeId
+    const singleIncRes = await request(app)
+      .get(`/api/v1/finance/incomes/${incData.id}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(singleIncRes.status).toBe(200);
+    expect(singleIncRes.body.data.id).toBe(incData.id);
+    expect(singleIncRes.body.data.incomeNumber).toBe(incData.incomeNumber);
+
+    // Verify GET /api/v1/finance/incomes with pagination and search
+    const pagedIncRes = await request(app)
+      .get(`/api/v1/finance/incomes?branchId=${branchId}&search=Booth&page=1&limit=10`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(pagedIncRes.status).toBe(200);
+    expect(pagedIncRes.body.data).toHaveLength(1);
+    expect(pagedIncRes.body.pagination).toBeDefined();
+    expect(pagedIncRes.body.pagination.page).toBe(1);
+    expect(pagedIncRes.body.pagination.limit).toBe(10);
+    expect(pagedIncRes.body.pagination.total).toBe(1);
+
+    // Verify unique constraint: tenant_id + branch_id + income_number cannot have duplicates
+    await expect(
+      mockPrisma.current.income.create({
+        data: {
+          tenantId: incData.tenantId,
+          branchId,
+          employeeId: incData.employeeId,
+          incomeNumber: incData.incomeNumber,
+          description: 'Duplicate income voucher',
+          amount: 25,
+          currencyCode: 'USD',
+          exchangeRate: 4100,
+        },
+      }),
+    ).rejects.toThrow(/Unique constraint failed/i);
 
     // 5. Verify unified financial transactions ledger & filters
     const ledgerRes = await request(app)
