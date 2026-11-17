@@ -35,15 +35,21 @@ import { apiRequest, ApiClientError } from '@/lib/api';
 
 interface BalanceRow {
   id: string;
+  tenantId?: string;
+  branchId?: string;
+  productId?: string;
   quantity: string;
   isLowStock: boolean;
-  branch: { name: string; branchCode: string };
+  updatedAt?: string;
+  branch: { id?: string; name: string; branchCode?: string };
   product: {
     id: string;
     sku: string;
     barcode?: string | null;
     name: string;
     lowStockAlert: string;
+    costPrice?: string;
+    sellingPrice?: string;
     unit?: { abbreviation: string };
   };
 }
@@ -217,6 +223,8 @@ export default function InventoryPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Pagination State
+  const [balancePage, setBalancePage] = useState(1);
+  const [balancePageSize, setBalancePageSize] = useState(25);
   const [movementPage, setMovementPage] = useState(1);
   const [movementPageSize, setMovementPageSize] = useState(25);
   const [adjustmentPage, setAdjustmentPage] = useState(1);
@@ -378,11 +386,17 @@ export default function InventoryPage() {
   const filteredBalances = balances.filter(
     (b) =>
       !q ||
+      b.id.toLowerCase().includes(q) ||
       b.product.name.toLowerCase().includes(q) ||
       b.product.sku.toLowerCase().includes(q) ||
       (b.product.barcode ?? '').toLowerCase().includes(q) ||
       b.branch.name.toLowerCase().includes(q),
   );
+
+  const paginatedBalances = useMemo(() => {
+    const start = (balancePage - 1) * balancePageSize;
+    return filteredBalances.slice(start, start + balancePageSize);
+  }, [filteredBalances, balancePage, balancePageSize]);
 
   const lowStockBalances = balances.filter((b) => b.isLowStock);
   const filteredLowStock = lowStockBalances.filter(
@@ -658,107 +672,152 @@ export default function InventoryPage() {
             {loading ? (
               <p className="p-8 text-center text-sm text-slate-500">{t.common.loading}</p>
             ) : tab === 'overview' ? (
-              <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
-                <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Product</th>
-                    <th className="px-4 py-3">SKU / Barcode</th>
-                    <th className="px-4 py-3">Branch</th>
-                    <th className="px-4 py-3">{t.inventory.onHand}</th>
-                    <th className="px-4 py-3">{t.inventory.alertThreshold}</th>
-                    <th className="px-4 py-3">{t.inventory.health}</th>
-                    <th className="px-4 py-3 text-right">{t.common.actions}</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredBalances.length === 0 ? (
+              <>
+                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                  <thead className="bg-slate-50 text-xs font-semibold uppercase text-slate-500">
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                        {t.common.noData}
-                      </td>
+                      <th className="px-4 py-3">Product &amp; Balance ID</th>
+                      <th className="px-4 py-3">SKU / Barcode</th>
+                      <th className="px-4 py-3">Branch</th>
+                      <th className="px-4 py-3">{t.inventory.onHand}</th>
+                      <th className="px-4 py-3">{t.inventory.alertThreshold}</th>
+                      <th className="px-4 py-3">{t.inventory.health}</th>
+                      <th className="px-4 py-3 text-right">{t.common.actions}</th>
                     </tr>
-                  ) : (
-                    filteredBalances.map((b) => {
-                      const qty = Number(b.quantity) || 0;
-                      const alertVal = Number(b.product.lowStockAlert) || 0;
-                      const isOut = qty <= 0;
-                      const isLow = !isOut && qty <= alertVal;
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {paginatedBalances.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                          {t.common.noData}
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedBalances.map((b) => {
+                        const qty = Number(b.quantity) || 0;
+                        const alertVal = Number(b.product.lowStockAlert) || 0;
+                        const isOut = qty <= 0;
+                        const isLow = !isOut && qty <= alertVal;
 
-                      return (
-                        <tr key={b.id} className="hover:bg-slate-50/50">
-                          <td className="px-4 py-3">
-                            <div className="font-semibold text-slate-900">{b.product.name}</div>
-                            <div className="text-xs text-slate-400">Unit: {b.product.unit?.abbreviation ?? 'pcs'}</div>
-                          </td>
-                          <td className="px-4 py-3">
-                            <div className="font-mono text-xs font-medium text-slate-800">{b.product.sku}</div>
-                            {b.product.barcode && (
-                              <div className="text-[11px] text-slate-500">{b.product.barcode}</div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-slate-600">{b.branch.name}</td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={`text-base font-bold ${
-                                isOut
-                                  ? 'text-rose-600'
-                                  : isLow
-                                    ? 'text-amber-600'
-                                    : 'text-slate-900'
-                              }`}
-                            >
-                              {b.quantity} {b.product.unit?.abbreviation ?? ''}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-xs text-slate-500">{b.product.lowStockAlert}</td>
-                          <td className="px-4 py-3">
-                            {isOut ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700">
-                                <XCircle className="h-3 w-3" />
-                                {t.inventory.outOfStock}
-                              </span>
-                            ) : isLow ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                                <AlertTriangle className="h-3 w-3" />
-                                {t.inventory.lowStock}
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
-                                <CheckCircle2 className="h-3 w-3" />
-                                {t.inventory.inStock}
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <div className="inline-flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => void openStockHistory(b)}
-                                title="View product stock movement history"
-                                className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                              >
-                                <History className="h-3 w-3 text-slate-500" />
-                                {t.inventory.stockHistory}
-                              </button>
-                              {canAdjust && (
+                        return (
+                          <tr key={b.id} className="hover:bg-slate-50/50">
+                            <td className="px-4 py-3">
+                              <div className="font-semibold text-slate-900">{b.product.name}</div>
+                              <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+                                <span>Unit: {b.product.unit?.abbreviation ?? 'pcs'}</span>
+                                <span className="text-slate-300">•</span>
+                                <span className="font-mono text-[11px] text-slate-500">Bal #{b.id.slice(0, 8)}</span>
                                 <button
                                   type="button"
-                                  onClick={() => openAdjustmentModal(b.product.id)}
-                                  title="Quick stock adjustment"
-                                  className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                                  onClick={() => handleCopyId(b.id)}
+                                  title="Copy full stock balance UUID"
+                                  className="rounded p-0.5 hover:bg-slate-200"
                                 >
-                                  <SlidersHorizontal className="h-3 w-3" />
-                                  Adjust
+                                  {copiedId === b.id ? (
+                                    <Check className="h-3 w-3 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="h-3 w-3 text-slate-400" />
+                                  )}
                                 </button>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="font-mono text-xs font-medium text-slate-800">{b.product.sku}</div>
+                              {b.product.barcode && (
+                                <div className="text-[11px] text-slate-500">{b.product.barcode}</div>
                               )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                              {b.productId && (
+                                <div className="flex items-center gap-1 font-mono text-[10px] text-slate-400">
+                                  <span>Prod #{b.productId.slice(0, 8)}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyId(b.productId!)}
+                                    title="Copy product UUID"
+                                    className="rounded p-0.5 hover:bg-slate-200"
+                                  >
+                                    {copiedId === b.productId ? (
+                                      <Check className="h-2.5 w-2.5 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="h-2.5 w-2.5 text-slate-400" />
+                                    )}
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600">{b.branch.name}</td>
+                            <td className="px-4 py-3">
+                              <span
+                                className={`text-base font-bold ${
+                                  isOut
+                                    ? 'text-rose-600'
+                                    : isLow
+                                      ? 'text-amber-600'
+                                      : 'text-slate-900'
+                                }`}
+                              >
+                                {b.quantity} {b.product.unit?.abbreviation ?? ''}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-slate-500">{b.product.lowStockAlert}</td>
+                            <td className="px-4 py-3">
+                              {isOut ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700">
+                                  <XCircle className="h-3 w-3" />
+                                  {t.inventory.outOfStock}
+                                </span>
+                              ) : isLow ? (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  {t.inventory.lowStock}
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  {t.inventory.inStock}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              <div className="inline-flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void openStockHistory(b)}
+                                  title="View product stock movement history"
+                                  className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                                >
+                                  <History className="h-3 w-3 text-slate-500" />
+                                  {t.inventory.stockHistory}
+                                </button>
+                                {canAdjust && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openAdjustmentModal(b.product.id)}
+                                    title="Quick stock adjustment"
+                                    className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                                  >
+                                    <SlidersHorizontal className="h-3 w-3" />
+                                    Adjust
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+                <DataTablePagination
+                  currentPage={balancePage}
+                  pageSize={balancePageSize}
+                  totalItems={filteredBalances.length}
+                  onPageChange={setBalancePage}
+                  onPageSizeChange={(size) => {
+                    setBalancePageSize(size);
+                    setBalancePage(1);
+                  }}
+                />
+              </>
             ) : tab === 'low_stock' ? (
               <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
                 <thead className="bg-amber-50 text-xs font-semibold uppercase text-amber-900">
@@ -789,11 +848,28 @@ export default function InventoryPage() {
 
                       return (
                         <tr key={b.id} className="hover:bg-amber-50/30">
-                          <td className="px-4 py-3 font-semibold text-slate-900">
-                            {b.product.name}
-                            <span className="ml-1 text-xs font-normal text-slate-400">
-                              ({b.product.unit?.abbreviation ?? 'pcs'})
-                            </span>
+                          <td className="px-4 py-3">
+                            <div className="font-semibold text-slate-900">
+                              {b.product.name}
+                              <span className="ml-1 text-xs font-normal text-slate-400">
+                                ({b.product.unit?.abbreviation ?? 'pcs'})
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1 font-mono text-[10px] text-slate-400">
+                              <span>Bal #{b.id.slice(0, 8)}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyId(b.id)}
+                                title="Copy stock balance UUID"
+                                className="rounded p-0.5 hover:bg-slate-200"
+                              >
+                                {copiedId === b.id ? (
+                                  <Check className="h-2.5 w-2.5 text-emerald-600" />
+                                ) : (
+                                  <Copy className="h-2.5 w-2.5 text-slate-400" />
+                                )}
+                              </button>
+                            </div>
                           </td>
                           <td className="px-4 py-3 font-mono text-xs text-slate-700">{b.product.sku}</td>
                           <td className="px-4 py-3 text-slate-600">{b.branch.name}</td>

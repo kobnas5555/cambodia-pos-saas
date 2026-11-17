@@ -349,8 +349,21 @@ export const listPurchaseItemsQuerySchema = z.object({
 export type ListPurchaseItemsQueryInput = z.infer<typeof listPurchaseItemsQuerySchema>;
 
 // ============================================================================
-// Phase 7: Stock Adjustments & Movements
+// Phase 7: Stock Balances, Adjustments & Movements
 // ============================================================================
+
+export const listStockBalancesQuerySchema = z.object({
+  search: z.string().optional(),
+  branchId: z.string().uuid().optional(),
+  productId: z.string().uuid().optional(),
+  lowStockOnly: z
+    .preprocess((val) => val === 'true' || val === true, z.boolean())
+    .optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+export type ListStockBalancesQueryInput = z.infer<typeof listStockBalancesQuerySchema>;
 
 export const CORE_STOCK_MOVEMENT_TYPES = [
   'purchase_in',

@@ -2079,6 +2079,49 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(lowStockRes.body.data[0].quantity).toBe('3.0000');
     expect(lowStockRes.body.data[0].isLowStock).toBe(true);
 
+    // Verify all 6 schema fields of stock_balances: id, tenant_id, branch_id, product_id, quantity, updated_at
+    const verifiedBalance = lowStockRes.body.data[0];
+    expect(verifiedBalance.id).toBeDefined();
+    expect(verifiedBalance.tenantId).toBeDefined();
+    expect(verifiedBalance.branchId).toBe(branchId);
+    expect(verifiedBalance.productId).toBe(tracked1Id);
+    expect(verifiedBalance.quantity).toBe('3.0000');
+    expect(verifiedBalance.updatedAt).toBeDefined();
+
+    // Verify single balance detail endpoint GET /api/v1/inventory/balances/:balanceId
+    const singleBalRes = await request(app)
+      .get(`/api/v1/inventory/balances/${verifiedBalance.id}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(singleBalRes.status).toBe(200);
+    expect(singleBalRes.body.data.id).toBe(verifiedBalance.id);
+    expect(singleBalRes.body.data.tenantId).toBe(verifiedBalance.tenantId);
+    expect(singleBalRes.body.data.branchId).toBe(branchId);
+    expect(singleBalRes.body.data.productId).toBe(tracked1Id);
+    expect(singleBalRes.body.data.quantity).toBe('3.0000');
+    expect(singleBalRes.body.data.updatedAt).toBeDefined();
+
+    // Verify stock balance pagination metadata
+    const pagedBalRes = await request(app)
+      .get(`/api/v1/inventory/balances?branchId=${branchId}&page=1&limit=10`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(pagedBalRes.status).toBe(200);
+    expect(pagedBalRes.body.pagination).toBeDefined();
+    expect(pagedBalRes.body.pagination.page).toBe(1);
+    expect(pagedBalRes.body.pagination.limit).toBe(10);
+    expect(pagedBalRes.body.pagination.total).toBeGreaterThanOrEqual(1);
+
+    // Verify unique constraint: tenant_id + branch_id + product_id cannot have duplicates
+    await expect(
+      mockPrisma.current.stockBalance.create({
+        data: {
+          tenantId: verifiedBalance.tenantId,
+          branchId,
+          productId: tracked1Id,
+          quantity: 10,
+        },
+      }),
+    ).rejects.toThrow(/Unique constraint failed/i);
+
     // Check movement filtering by movementType & search + adjustment search
     const adjOutMovements = await request(app)
       .get(`/api/v1/inventory/movements?branchId=${branchId}&movementType=adjustment_out&search=${encodeURIComponent('Expired')}`)

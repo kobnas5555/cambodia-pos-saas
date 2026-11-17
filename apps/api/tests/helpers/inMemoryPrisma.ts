@@ -1815,6 +1815,8 @@ export function createInMemoryPrisma() {
     },
 
     stockBalance: {
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.stockBalances.filter((sb) => matchesWhere(sb, where)).length,
       findUnique: async ({ where }: { where: Row }) => {
         if (where.tenantId_branchId_productId) {
           const { tenantId, branchId, productId } = where.tenantId_branchId_productId;
@@ -1826,11 +1828,36 @@ export function createInMemoryPrisma() {
         }
         return store.stockBalances.find((sb) => matchesWhere(sb, where)) ?? null;
       },
-      findMany: async ({ where, include, orderBy }: { where?: Row; include?: Row; orderBy?: any } = {}) =>
-        applyOrderBy(
+      findFirst: async ({ where, include }: { where?: Row; include?: Row } = {}) => {
+        const found = store.stockBalances.find((sb) => matchesWhere(sb, where));
+        if (!found) return null;
+        const out: Row = { ...found };
+        if (include?.branch) out.branch = store.branches.find((b) => b.id === found.branchId) ?? null;
+        if (include?.product) {
+          const p = store.products.find((pr) => pr.id === found.productId);
+          out.product = p
+            ? {
+                ...p,
+                unit: store.units.find((u) => u.id === p.unitId) ?? null,
+              }
+            : null;
+        }
+        return out;
+      },
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: { where?: Row; include?: Row; orderBy?: any; skip?: number; take?: number } = {}) => {
+        const sorted = applyOrderBy(
           store.stockBalances.filter((sb) => matchesWhere(sb, where)),
           orderBy,
-        ).map((sb) => {
+        );
+        const start = skip ?? 0;
+        const page = sorted.slice(start, start + (take ?? 200));
+        return page.map((sb) => {
           const out: Row = { ...sb };
           if (include?.branch) out.branch = store.branches.find((b) => b.id === sb.branchId) ?? null;
           if (include?.product) {
@@ -1843,8 +1870,15 @@ export function createInMemoryPrisma() {
               : null;
           }
           return out;
-        }),
+        });
+      },
       create: async ({ data }: { data: Row }) => {
+        const exists = store.stockBalances.some(
+          (sb) => sb.tenantId === data.tenantId && sb.branchId === data.branchId && sb.productId === data.productId,
+        );
+        if (exists) {
+          throw new Error('Unique constraint failed on the fields: (`tenant_id`,`branch_id`,`product_id`)');
+        }
         const row = {
           id: uuid(),
           updatedAt: new Date(),

@@ -1,6 +1,7 @@
 import {
   createStockAdjustmentSchema,
   listStockAdjustmentsQuerySchema,
+  listStockBalancesQuerySchema,
   listStockMovementsQuerySchema,
 } from '@cambodia-pos/shared';
 import { Router } from 'express';
@@ -14,7 +15,18 @@ import * as controller from './inventory.controller';
 const router = Router();
 router.use(authenticate, requireTenantContext);
 
-router.get('/balances', requirePermission('inventory.view'), controller.getBalances);
+router.get(
+  '/balances',
+  requirePermission('inventory.view'),
+  validate({ query: listStockBalancesQuerySchema }),
+  controller.getBalances,
+);
+router.get(
+  '/balances/:balanceId',
+  requirePermission('inventory.view'),
+  validate({ params: z.object({ balanceId: z.string().uuid() }) }),
+  controller.getBalanceDetail,
+);
 router.get(
   '/movements',
   requirePermission('inventory.view'),
