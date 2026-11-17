@@ -1947,18 +1947,26 @@ export function createInMemoryPrisma() {
           ...(include?.approver ? { approver: store.employees.find((e) => e.id === found.approvedBy) } : {}),
         };
       },
-      findMany: async ({ where, include, orderBy, take }: { where?: Row; include?: Row; orderBy?: any; take?: number } = {}) =>
-        applyOrderBy(
+      findMany: async ({
+        where,
+        include,
+        orderBy,
+        skip,
+        take,
+      }: { where?: Row; include?: Row; orderBy?: any; skip?: number; take?: number } = {}) => {
+        const sorted = applyOrderBy(
           store.stockAdjustments.filter((sa) => matchesWhere(sa, where)),
           orderBy,
-        )
-          .slice(0, take ?? 200)
-          .map((sa) => ({
-            ...sa,
-            ...(include?.branch ? { branch: store.branches.find((b) => b.id === sa.branchId) } : {}),
-            ...(include?.employee ? { employee: store.employees.find((e) => e.id === sa.employeeId) } : {}),
-            ...(include?.approver ? { approver: store.employees.find((e) => e.id === sa.approvedBy) } : {}),
-          })),
+        );
+        const start = skip ?? 0;
+        const page = sorted.slice(start, start + (take ?? 200));
+        return page.map((sa) => ({
+          ...sa,
+          ...(include?.branch ? { branch: store.branches.find((b) => b.id === sa.branchId) } : {}),
+          ...(include?.employee ? { employee: store.employees.find((e) => e.id === sa.employeeId) } : {}),
+          ...(include?.approver ? { approver: store.employees.find((e) => e.id === sa.approvedBy) } : {}),
+        }));
+      },
       create: async ({ data }: { data: Row }) => {
         const now = new Date();
         const row = { id: uuid(), adjustmentDate: now, createdAt: now, ...data };

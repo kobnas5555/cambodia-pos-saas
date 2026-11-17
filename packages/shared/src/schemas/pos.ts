@@ -396,6 +396,7 @@ export type ListStockMovementsQueryInput = z.infer<typeof listStockMovementsQuer
 export const createStockAdjustmentSchema = z.object({
   branchId: z.string().uuid(),
   reason: z.string().trim().min(2).max(500),
+  adjustmentDate: z.string().optional(),
   items: z
     .array(
       z.object({
@@ -407,6 +408,19 @@ export const createStockAdjustmentSchema = z.object({
     )
     .min(1, 'At least one stock adjustment item is required'),
 });
+
+export const listStockAdjustmentsQuerySchema = z.object({
+  search: z.string().optional(),
+  branchId: z.string().uuid().optional(),
+  employeeId: z.string().uuid().optional(),
+  status: z.string().optional(),
+  startDate: z.string().optional(),
+  endDate: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+export type ListStockAdjustmentsQueryInput = z.infer<typeof listStockAdjustmentsQuerySchema>;
 
 // ============================================================================
 // Phase 8: Sales Returns & Refunds

@@ -36,11 +36,19 @@ export const getMovementDetail = asyncHandler(async (req: Request, res: Response
 });
 
 export const getAdjustments = asyncHandler(async (req: Request, res: Response) => {
-  const data = await inventoryService.listStockAdjustments(req.tenant!.tenantId, {
-    branchId: typeof req.query.branchId === 'string' ? req.query.branchId : undefined,
-    search: typeof req.query.search === 'string' ? req.query.search : undefined,
+  const result = await inventoryService.listStockAdjustments(req.tenant!.tenantId, req.query as any);
+  res.json({
+    success: true,
+    data: (result as any).items ?? result,
+    pagination: (result as any).total !== undefined
+      ? {
+          total: (result as any).total,
+          page: (result as any).page,
+          limit: (result as any).limit,
+          totalPages: (result as any).totalPages,
+        }
+      : undefined,
   });
-  res.json({ success: true, data });
 });
 
 export const getAdjustmentDetail = asyncHandler(async (req: Request, res: Response) => {

@@ -2139,8 +2139,34 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(adjDetailRes.status).toBe(200);
     expect(adjDetailRes.body.data.id).toBe(adjOutRes.body.data.id);
-    expect(adjDetailRes.body.data.movements).toHaveLength(1);
-    expect(adjDetailRes.body.data.movements[0].product.sku).toBe('SNK-CHIPS');
+
+    // Verify all 10 schema fields of stock_adjustments
+    const verifiedAdj = adjDetailRes.body.data;
+    expect(verifiedAdj.id).toBe(adjOutRes.body.data.id);
+    expect(verifiedAdj.tenantId).toBeDefined();
+    expect(verifiedAdj.branchId).toBe(branchId);
+    expect(verifiedAdj.adjustmentNumber).toBeDefined();
+    expect(verifiedAdj.employeeId).toBeDefined();
+    expect(verifiedAdj.reason).toBe('Expired batch disposal');
+    expect(verifiedAdj.status).toBe('APPROVED');
+    expect(verifiedAdj.approvedBy).toBeDefined();
+    expect(verifiedAdj.adjustmentDate).toBeDefined();
+    expect(verifiedAdj.createdAt).toBeDefined();
+
+    // Verify adjustment line details represented by linked stock_movements
+    expect(verifiedAdj.movements).toHaveLength(1);
+    const adjLine = verifiedAdj.movements[0];
+    expect(adjLine.id).toBeDefined();
+    expect(adjLine.tenantId).toBe(verifiedAdj.tenantId);
+    expect(adjLine.branchId).toBe(branchId);
+    expect(adjLine.productId).toBe(tracked1Id);
+    expect(adjLine.movementType).toBe('adjustment_out');
+    expect(Number(adjLine.quantityOut)).toBe(12);
+    expect(Number(adjLine.balanceAfter)).toBe(3);
+    expect(adjLine.referenceType).toBe('StockAdjustment');
+    expect(adjLine.referenceId).toBe(verifiedAdj.id);
+    expect(adjLine.notes).toBe('Expired batch disposal');
+    expect(adjLine.product.sku).toBe('SNK-CHIPS');
   });
 
   it('FR-11: manages expense types, expenses, additional income, RBAC, transaction ledger, and date-scoped financial summaries', async () => {

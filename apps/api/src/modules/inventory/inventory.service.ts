@@ -1,4 +1,8 @@
-import type { CreateStockAdjustmentInput, ListStockMovementsQueryInput } from '@cambodia-pos/shared';
+import type {
+  CreateStockAdjustmentInput,
+  ListStockAdjustmentsQueryInput,
+  ListStockMovementsQueryInput,
+} from '@cambodia-pos/shared';
 import { AppError } from '../../common/errors/AppError';
 import { resolveActorEmployeeId } from '../../common/utils/actor';
 import { generateDocumentNumber, getTenantDocumentPrefix } from '../../common/utils/numbering';
@@ -151,28 +155,60 @@ export async function getStockMovementById(tenantId: string, movementId: string)
 
 export async function listStockAdjustments(
   tenantId: string,
-  filters: { branchId?: string; search?: string } = {},
+  filters: Partial<ListStockAdjustmentsQueryInput> | string = {},
 ) {
-  return prisma.stockAdjustment.findMany({
-    where: {
-      tenantId,
-      ...(filters.branchId ? { branchId: filters.branchId } : {}),
-      ...(filters.search
-        ? {
-            OR: [
-              { adjustmentNumber: { contains: filters.search, mode: 'insensitive' } },
-              { reason: { contains: filters.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    },
+  const query = typeof filters === 'string' ? { search: filters } : filters;
+  const where: any = {
+    tenantId,
+    ...(query.branchId ? { branchId: query.branchId } : {}),
+    ...(query.employeeId ? { employeeId: query.employeeId } : {}),
+    ...(query.status && query.status !== 'ALL' ? { status: query.status } : {}),
+    ...(query.startDate || query.endDate
+      ? {
+          adjustmentDate: {
+            ...(query.startDate ? { gte: new Date(query.startDate) } : {}),
+            ...(query.endDate ? { lte: new Date(query.endDate + 'T23:59:59.999Z') } : {}),
+          },
+        }
+      : {}),
+  };
+
+  if (query.search?.trim()) {
+    const q = query.search.trim();
+    where.OR = [
+      { adjustmentNumber: { contains: q, mode: 'insensitive' } },
+      { reason: { contains: q, mode: 'insensitive' } },
+      { id: { contains: q, mode: 'insensitive' } },
+    ];
+  }
+
+  const total = await prisma.stockAdjustment.count({ where });
+  const hasPagination = query.page !== undefined || query.limit !== undefined;
+  const page = query.page ? Math.max(1, Number(query.page)) : 1;
+  const limit = query.limit ? Math.min(100, Math.max(1, Number(query.limit))) : (hasPagination ? 20 : total || 20);
+  const skip = hasPagination ? (page - 1) * limit : undefined;
+  const take = hasPagination ? limit : undefined;
+
+  const items = await prisma.stockAdjustment.findMany({
+    where,
     include: {
       branch: { select: { id: true, name: true, branchCode: true } },
       employee: { select: { id: true, name: true } },
       approver: { select: { id: true, name: true } },
     },
     orderBy: { createdAt: 'desc' },
-    take: 100,
+    ...(skip !== undefined ? { skip } : {}),
+    ...(take !== undefined ? { take } : {}),
+  });
+
+  const totalPages = Math.ceil(total / (limit || 1)) || 1;
+
+  return Object.assign(items, {
+    items,
+    total,
+    page,
+    limit,
+    totalPages,
   });
 }
 
@@ -230,6 +266,7 @@ export async function createStockAdjustment(
         approvedBy: employeeId,
         reason: input.reason,
         status: 'APPROVED',
+        ...(input.adjustmentDate ? { adjustmentDate: new Date(input.adjustmentDate) } : {}),
       },
     });
 

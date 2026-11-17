@@ -1,5 +1,6 @@
 import {
   createStockAdjustmentSchema,
+  listStockAdjustmentsQuerySchema,
   listStockMovementsQuerySchema,
 } from '@cambodia-pos/shared';
 import { Router } from 'express';
@@ -26,7 +27,12 @@ router.get(
   validate({ params: z.object({ movementId: z.string().uuid() }) }),
   controller.getMovementDetail,
 );
-router.get('/adjustments', requirePermission('inventory.view'), controller.getAdjustments);
+router.get(
+  '/adjustments',
+  requirePermission('inventory.view'),
+  validate({ query: listStockAdjustmentsQuerySchema }),
+  controller.getAdjustments,
+);
 router.get(
   '/adjustments/:adjustmentId',
   requirePermission('inventory.view'),
