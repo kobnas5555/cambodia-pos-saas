@@ -2979,6 +2979,51 @@ describe('Full POS & Business Management API Flows (All Modules)', () => {
     expect(updateSettingsRes.body.data.settings.returnPrefix).toBe('SR');
     expect(updateSettingsRes.body.data.settings.shiftPrefix).toBe('SH');
 
+    // Verify GET /api/v1/settings/records and all 7 schema fields of settings
+    const recordsRes = await request(app)
+      .get('/api/v1/settings/records')
+      .set('Authorization', `Bearer ${token}`);
+    expect(recordsRes.status).toBe(200);
+    expect(Array.isArray(recordsRes.body.data)).toBe(true);
+    expect(recordsRes.body.data.length).toBeGreaterThan(0);
+
+    const firstSetting = recordsRes.body.data[0];
+    expect(firstSetting.id).toBeDefined();
+    expect(firstSetting.tenantId).toBeDefined();
+    expect(firstSetting.branchId === null || typeof firstSetting.branchId === 'string').toBe(true);
+    expect(firstSetting.settingKey).toBeDefined();
+    expect(firstSetting.settingValue).toBeDefined();
+    expect(firstSetting.createdAt).toBeDefined();
+    expect(firstSetting.updatedAt).toBeDefined();
+
+    // Verify GET /api/v1/settings/records/:id by UUID
+    const singleRecordRes = await request(app)
+      .get(`/api/v1/settings/records/${firstSetting.id}`)
+      .set('Authorization', `Bearer ${token}`);
+    expect(singleRecordRes.status).toBe(200);
+    expect(singleRecordRes.body.data.id).toBe(firstSetting.id);
+    expect(singleRecordRes.body.data.settingKey).toBe(firstSetting.settingKey);
+
+    // Verify GET /api/v1/settings/records/:settingKey by key name
+    const keyLookupRes = await request(app)
+      .get('/api/v1/settings/records/orderPrefix')
+      .set('Authorization', `Bearer ${token}`);
+    expect(keyLookupRes.status).toBe(200);
+    expect(keyLookupRes.body.data.settingKey).toBe('orderPrefix');
+    expect(keyLookupRes.body.data.settingValue).toBe('INV');
+
+    // Verify unique constraint: tenant_id + branch_id + setting_key cannot have duplicate rows
+    await expect(
+      mockPrisma.current.setting.create({
+        data: {
+          tenantId: firstSetting.tenantId,
+          branchId: firstSetting.branchId,
+          settingKey: firstSetting.settingKey,
+          settingValue: 'DUPLICATE_VAL',
+        },
+      }),
+    ).rejects.toThrow(/Unique constraint failed/i);
+
     // 4. Exchange Rates
     const newRateRes = await request(app)
       .post('/api/v1/settings/exchange-rates')

@@ -668,6 +668,21 @@ export const updateSettingsSchema = z.object({
   settings: z.record(z.unknown()),
 });
 
+export const listSettingsQuerySchema = z.object({
+  branchId: z.string().uuid().optional().nullable(),
+  search: z.string().trim().optional(),
+});
+
+export interface SettingRecord {
+  id: string;
+  tenantId: string;
+  branchId: string | null;
+  settingKey: string;
+  settingValue: unknown;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
 export const createExchangeRateSchema = z.object({
   baseCurrency: z.enum(SUPPORTED_CURRENCIES).default('USD'),
   targetCurrency: z.enum(SUPPORTED_CURRENCIES).default('KHR'),
@@ -731,6 +746,7 @@ export type CreateExpenseInput = z.infer<typeof createExpenseSchema>;
 export type CreateIncomeInput = z.infer<typeof createIncomeSchema>;
 
 export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
+export type ListSettingsQueryInput = z.infer<typeof listSettingsQuerySchema>;
 export type CreateExchangeRateInput = z.infer<typeof createExchangeRateSchema>;
 
 // ============================================================================

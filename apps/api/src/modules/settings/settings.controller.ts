@@ -39,3 +39,27 @@ export const putUserPreferences = asyncHandler(async (req: Request, res: Respons
   res.json({ success: true, data });
 });
 
+export const getSettingRecords = asyncHandler(async (req: Request, res: Response) => {
+  const branchId = typeof req.query.branchId === 'string' ? req.query.branchId : undefined;
+  const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+  const data = await settingsService.listSettingRecords(req.tenant!.tenantId, { branchId, search });
+  res.json({ success: true, data });
+});
+
+export const getSettingRecord = asyncHandler(async (req: Request, res: Response) => {
+  const idOrKey = req.params.id;
+  const branchId = typeof req.query.branchId === 'string' ? req.query.branchId : undefined;
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrKey);
+  if (isUuid) {
+    try {
+      const data = await settingsService.getSettingRecordById(req.tenant!.tenantId, idOrKey);
+      return res.json({ success: true, data });
+    } catch {
+      // Fallback to key lookup
+    }
+  }
+  const data = await settingsService.getSettingRecordByKey(req.tenant!.tenantId, idOrKey, branchId);
+  res.json({ success: true, data });
+});
+
+

@@ -2310,21 +2310,67 @@ export function createInMemoryPrisma() {
     },
 
     setting: {
-      findFirst: async ({ where }: { where: Row }) =>
-        store.settings.find((s) => matchesWhere(s, where)) ?? null,
-      findMany: async ({ where }: { where?: Row } = {}) =>
-        store.settings.filter((s) => matchesWhere(s, where)),
-      create: async ({ data }: { data: Row }) => {
+      findFirst: async ({ where, include }: { where?: Row; include?: Row } = {}) => {
+        const found = store.settings.find((s) => matchesWhere(s, where));
+        if (!found) return null;
+        return {
+          ...found,
+          ...(include?.branch ? { branch: store.branches.find((b) => b.id === found.branchId) } : {}),
+          ...(include?.tenant ? { tenant: store.tenants.find((t) => t.id === found.tenantId) } : {}),
+        };
+      },
+      findMany: async ({
+        where,
+        orderBy,
+        skip,
+        take,
+        include,
+      }: { where?: Row; orderBy?: any; skip?: number; take?: number; include?: Row } = {}) => {
+        const sorted = applyOrderBy(
+          store.settings.filter((s) => matchesWhere(s, where)),
+          orderBy,
+        );
+        const start = skip ?? 0;
+        const page = sorted.slice(start, start + (take ?? 200));
+        return page.map((s) => ({
+          ...s,
+          ...(include?.branch ? { branch: store.branches.find((b) => b.id === s.branchId) } : {}),
+          ...(include?.tenant ? { tenant: store.tenants.find((t) => t.id === s.tenantId) } : {}),
+        }));
+      },
+      create: async ({ data, include }: { data: Row; include?: Row }) => {
+        const branchKey = data.branchId ?? null;
+        const exists = store.settings.some(
+          (s) =>
+            s.tenantId === data.tenantId &&
+            (s.branchId ?? null) === branchKey &&
+            s.settingKey === data.settingKey,
+        );
+        if (exists) {
+          throw new Error('Unique constraint failed on the fields: (`tenant_id`,`branch_id`,`setting_key`)');
+        }
         const now = new Date();
         const row = { id: uuid(), createdAt: now, updatedAt: now, ...data };
         store.settings.push(row);
-        return { ...row };
+        return {
+          ...row,
+          ...(include?.branch ? { branch: store.branches.find((b) => b.id === row.branchId) } : {}),
+          ...(include?.tenant ? { tenant: store.tenants.find((t) => t.id === row.tenantId) } : {}),
+        };
       },
       update: async ({ where, data }: { where: Row; data: Row }) => {
         const idx = store.settings.findIndex((s) => matchesWhere(s, where));
         if (idx === -1) throw new Error('Setting not found');
         store.settings[idx] = { ...store.settings[idx], ...data, updatedAt: new Date() };
         return { ...store.settings[idx] };
+      },
+      count: async ({ where }: { where?: Row } = {}) =>
+        store.settings.filter((s) => matchesWhere(s, where)).length,
+      delete: async ({ where }: { where: Row }) => {
+        const idx = store.settings.findIndex((s) => matchesWhere(s, where));
+        if (idx === -1) throw new Error('Setting not found');
+        const [deleted] = store.settings.splice(idx, 1);
+        return deleted;
       },
     },
 

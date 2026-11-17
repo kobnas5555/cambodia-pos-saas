@@ -6,6 +6,7 @@ import {
 } from '@cambodia-pos/shared';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../db/prisma';
+import { AppError } from '../../common/errors/AppError';
 import { recordActivity } from '../activity-logs/activity-logs.service';
 import type { ActorInfo } from '../tenants/tenants.service';
 
@@ -208,5 +209,52 @@ export async function updateUserPreferences(
 
   return merged;
 }
+
+export async function listSettingRecords(
+  tenantId: string,
+  filters: { branchId?: string | null; search?: string } = {},
+) {
+  const where: Prisma.SettingWhereInput = {
+    tenantId,
+    ...(filters.branchId !== undefined ? { branchId: filters.branchId } : {}),
+    ...(filters.search
+      ? { settingKey: { contains: filters.search, mode: 'insensitive' } }
+      : {}),
+  };
+
+  return prisma.setting.findMany({
+    where,
+    orderBy: { settingKey: 'asc' },
+  });
+}
+
+export async function getSettingRecordById(tenantId: string, id: string) {
+  const record = await prisma.setting.findFirst({
+    where: { id, tenantId },
+  });
+  if (!record) {
+    throw AppError.notFound('Setting record not found', 'SETTING_NOT_FOUND');
+  }
+  return record;
+}
+
+export async function getSettingRecordByKey(
+  tenantId: string,
+  key: string,
+  branchId?: string | null,
+) {
+  const record = await prisma.setting.findFirst({
+    where: {
+      tenantId,
+      settingKey: key,
+      branchId: branchId ?? null,
+    },
+  });
+  if (!record) {
+    throw AppError.notFound('Setting record not found', 'SETTING_NOT_FOUND');
+  }
+  return record;
+}
+
 
 

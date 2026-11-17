@@ -11,7 +11,9 @@ import {
 import {
   ArrowLeftRight,
   Calculator,
+  Check,
   CheckCircle2,
+  Copy,
   DollarSign,
   FileText,
   Hash,
@@ -62,7 +64,17 @@ const DEFAULT_EXTENDED_SETTINGS: ExtendedSystemSettings = {
   showSavings: true,
 };
 
-type SettingsTab = 'tax' | 'receipt' | 'numbering' | 'exchange' | 'preferences';
+type SettingsTab = 'tax' | 'receipt' | 'numbering' | 'exchange' | 'preferences' | 'records';
+
+interface SettingDbRecord {
+  id: string;
+  tenantId: string;
+  branchId: string | null;
+  settingKey: string;
+  settingValue: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export default function SystemSettingsPage() {
   const { activeTenant, refreshProfile, hasPermission } = useAuth();
@@ -88,13 +100,25 @@ export default function SystemSettingsPage() {
   const [calcUsd, setCalcUsd] = useState('10');
   const [calcKhr, setCalcKhr] = useState('41000');
 
+  // Database Setting Records State
+  const [dbRecords, setDbRecords] = useState<SettingDbRecord[]>([]);
+  const [dbRecordsLoading, setDbRecordsLoading] = useState(false);
+  const [recordSearch, setRecordSearch] = useState('');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopy = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   // URL Sync for Tab Navigation
   useEffect(() => {
     function syncTabFromUrl() {
       if (typeof window !== 'undefined') {
         const params = new URLSearchParams(window.location.search);
         const tabParam = params.get('tab') as SettingsTab | null;
-        if (tabParam && ['tax', 'receipt', 'numbering', 'exchange', 'preferences'].includes(tabParam)) {
+        if (tabParam && ['tax', 'receipt', 'numbering', 'exchange', 'preferences', 'records'].includes(tabParam)) {
           setActiveTab(tabParam);
         }
       }
@@ -192,9 +216,28 @@ export default function SystemSettingsPage() {
     }
   }, [activeTenant]);
 
+  const loadDbRecords = useCallback(async () => {
+    if (!activeTenant) return;
+    setDbRecordsLoading(true);
+    try {
+      const res = await apiRequest<{ success: boolean; data: SettingDbRecord[] }>('/settings/records');
+      setDbRecords(res.data || []);
+    } catch {
+      // ignore
+    } finally {
+      setDbRecordsLoading(false);
+    }
+  }, [activeTenant]);
+
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    if (activeTab === 'records') {
+      void loadDbRecords();
+    }
+  }, [activeTab, loadDbRecords]);
 
   const handleSaveSettings = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -307,6 +350,7 @@ export default function SystemSettingsPage() {
             { key: 'numbering', label: 'Numbering Formats', icon: Hash },
             { key: 'exchange', label: 'Exchange Rates & Currency', icon: ArrowLeftRight },
             { key: 'preferences', label: 'User Preferences', icon: User },
+            { key: 'records', label: 'Settings Records (DB)', icon: Sliders },
           ].map((item) => {
             const Icon = item.icon;
             const active = activeTab === item.key;
@@ -1280,6 +1324,129 @@ export default function SystemSettingsPage() {
               </div>
             </div>
           </form>
+        )}
+
+        {/* 6. SETTINGS DB RECORDS TAB */}
+        {activeTab === 'records' && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Database Settings Records</h2>
+                <p className="text-xs text-slate-500">
+                  Direct inspection of all persisted key-value setting entity rows in PostgreSQL (`settings` table).
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  placeholder="Filter by setting key..."
+                  value={recordSearch}
+                  onChange={(e) => setRecordSearch(e.target.value)}
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                />
+                <button
+                  type="button"
+                  onClick={loadDbRecords}
+                  disabled={dbRecordsLoading}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                >
+                  <RotateCcw className={`h-3.5 w-3.5 ${dbRecordsLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                    <tr>
+                      <th className="px-4 py-3">Setting Key</th>
+                      <th className="px-4 py-3">Setting Value</th>
+                      <th className="px-4 py-3">Scope / Branch</th>
+                      <th className="px-4 py-3">Setting ID</th>
+                      <th className="px-4 py-3">Created / Updated At</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-normal text-slate-700">
+                    {dbRecordsLoading ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
+                          Loading setting records...
+                        </td>
+                      </tr>
+                    ) : dbRecords.filter(
+                        (r) =>
+                          !recordSearch ||
+                          r.settingKey.toLowerCase().includes(recordSearch.toLowerCase()) ||
+                          JSON.stringify(r.settingValue).toLowerCase().includes(recordSearch.toLowerCase()),
+                      ).length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
+                          No matching database settings records found.
+                        </td>
+                      </tr>
+                    ) : (
+                      dbRecords
+                        .filter(
+                          (r) =>
+                            !recordSearch ||
+                            r.settingKey.toLowerCase().includes(recordSearch.toLowerCase()) ||
+                            JSON.stringify(r.settingValue).toLowerCase().includes(recordSearch.toLowerCase()),
+                        )
+                        .map((rec) => (
+                          <tr key={rec.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="px-4 py-3 font-semibold text-slate-900 font-mono">
+                              {rec.settingKey}
+                            </td>
+                            <td className="px-4 py-3 font-mono">
+                              <span className="inline-block max-w-xs truncate rounded bg-slate-100 px-2 py-0.5 text-slate-800" title={typeof rec.settingValue === 'object' ? JSON.stringify(rec.settingValue, null, 2) : String(rec.settingValue)}>
+                                {typeof rec.settingValue === 'object' ? JSON.stringify(rec.settingValue) : String(rec.settingValue)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              {rec.branchId ? (
+                                <span className="inline-flex items-center gap-1 rounded bg-blue-50 px-2 py-0.5 font-mono text-[10px] font-semibold text-blue-700 border border-blue-200">
+                                  Branch: {rec.branchId.slice(0, 8)}...
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
+                                  Global (Tenant)
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 font-mono">
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(rec.id, rec.id)}
+                                title="Copy Setting ID"
+                                className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-[10px] text-slate-700 hover:bg-slate-200 border border-slate-200"
+                              >
+                                {copiedId === rec.id ? (
+                                  <>
+                                    <Check className="h-3 w-3 text-emerald-600" />
+                                    <span className="text-emerald-700">Copied</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="h-3 w-3 text-slate-500" />
+                                    <span>#{rec.id.slice(0, 8)}</span>
+                                  </>
+                                )}
+                              </button>
+                            </td>
+                            <td className="px-4 py-3 text-slate-500 text-[11px] whitespace-nowrap">
+                              <div>Created: {new Date(rec.createdAt).toLocaleDateString()}</div>
+                              <div>Updated: {new Date(rec.updatedAt).toLocaleDateString()}</div>
+                            </td>
+                          </tr>
+                        ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </AppShell>

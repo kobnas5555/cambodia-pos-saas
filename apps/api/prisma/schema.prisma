@@ -866,7 +866,9 @@ model Setting {
   tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   branch Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  @@index([tenantId, branchId, settingKey])
+  @@unique([tenantId, branchId, settingKey])
+  @@index([tenantId])
+  @@index([branchId])
   @@map("settings")
 }
 
